@@ -1,0 +1,33 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Generated context packs (produced by context_resolver.py)
+context-pack.aol
+**/context-pack.aol
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+*.egg-info/
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local retrofit / scan outputs (project-specific)
+**/retrofit-report.json
+
+# Local project workspaces that should live in consumer repos,
+# not in the shared AgentOS framework (keep examples/ + templates/).
+# Uncomment if you want projects/ to stay untracked in this repo:
+# projects/*/
+# !projects/README.md

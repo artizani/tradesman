@@ -1,0 +1,15 @@
+AOL/1
+TASK=<ID>
+EPIC=<ID>
+TYPE=<type>
+STATUS=draft
+RISK=<risk>
+GOAL=<goal>
+IN=<scope>
+OUT=<excluded>
+ARCH=<refs>
+JOURNEY=<refs>
+INV=<refs>
+ROLES=<roles>
+ACCEPT=<outcomes>
+EVIDENCE=<evidence>

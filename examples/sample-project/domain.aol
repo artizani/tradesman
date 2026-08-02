@@ -1,0 +1,5 @@
+AOL/1
+DOMAIN=payments
+CONCEPT:PAYMENT=InstructionToTransferValue
+RULE:DOM-001=PaymentHasStableIdentity
+GLOSSARY:PSP=PaymentServiceProvider
