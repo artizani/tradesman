@@ -10,6 +10,7 @@ PostToolUse  record what actually happened, stamped trust=RUNTIME
 SubagentStop append the handoff on exit (EXIT=...+APPEND_HANDOFF in LLM_README.aol)
 """
 from pathlib import Path
+import datetime
 import json
 import re
 import subprocess
@@ -47,6 +48,7 @@ class Governor:
         self.prod_globs, self.test_globs = roles_mod.project_globs(self.root, project)
         self.denials = []
         self.recorded = []
+        self.writes = []
 
     # -- role resolution ---------------------------------------------------
     def role_for(self, input_data):
@@ -138,6 +140,13 @@ class Governor:
         tool_input = input_data.get('tool_input', {}) or {}
         response = input_data.get('tool_response') or {}
 
+        if tool_name in roles_mod.MUTATING_TOOLS:
+            for path in self._paths(tool_name, tool_input):
+                rel = self._rel(path)
+                if rel not in self.writes:
+                    self.writes.append(rel)
+            return {}
+
         if tool_name != 'Bash':
             return {}
         command = tool_input.get('command', '')
@@ -213,19 +222,24 @@ class Governor:
         return proc.returncode
 
     async def subagent_stop(self, input_data, tool_use_id, context):
-        """EXIT=...+APPEND_HANDOFF (LLM_README.aol)."""
-        role = self.role_for(input_data) or self.default_role or '?'
+        self.append_handoff(self.role_for(input_data) or self.default_role or '?',
+                            self.actor_for(input_data))
+        return {}
+
+    def append_handoff(self, role, actor, next_role=None):
+        """EXIT=...+APPEND_HANDOFF (LLM_README.aol). Unconditional: a role that
+        exits without a handoff leaves the next role blind."""
         path = aol.project_dir(self.root, self.project) / 'memory' / 'handoffs.ndjson'
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, 'a') as fh:
             fh.write(json.dumps({
-                'ts': __import__('datetime').datetime.now(
-                    __import__('datetime').timezone.utc).isoformat(timespec='seconds'),
+                'ts': datetime.datetime.now(
+                    datetime.timezone.utc).isoformat(timespec='seconds'),
                 'project': self.project, 'task': self.task, 'role': role,
-                'actor': self.actor_for(input_data),
-                'denials': len(self.denials), 'evidence': len(self.recorded),
+                'actor': actor, 'wrote': self.writes,
+                'denials': [d['path'] for d in self.denials],
+                'evidence': len(self.recorded), 'next': next_role,
             }, sort_keys=True) + '\n')
-        return {}
 
     def hooks(self):
         """The dict handed to ClaudeAgentOptions(hooks=...)."""

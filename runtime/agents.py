@@ -28,9 +28,10 @@ def core_context(root=ROOT):
     return '\n\n'.join(parts)
 
 
-def role_prompt(policy, core):
+def role_prompt(policy, core, actor='<your-actor-id>'):
     banned = '+'.join(policy.bans) or 'none'
     writes = '+'.join(policy.writes) or 'none'
+    role = policy.name
     return f"""You are performing exactly one AgentOS role: {policy.name}.
 
 {core}
@@ -47,9 +48,24 @@ Writes outside your role are denied by the harness, not merely discouraged.
 A denial is not an obstacle to work around: it means the work belongs to a
 different role.
 
-You do not write your own evidence. The harness records what you actually ran,
-with its real exit code. Claiming a result you did not observe will not produce
-a passing record.
+### EVIDENCE
+The harness records every verification command you run, with its real exit code
+and a hash of its output. You cannot make a failing command record as passing.
+
+For evidence the harness cannot observe -- a review verdict, an architecture
+approval -- record it yourself before you finish:
+
+    python3 compiler/evidence.py record \\
+      --project <project> --task <task> --role {role} \\
+      --kind REVIEW|ARCH_APPROVAL|DEFECT --verdict PASS|FAIL|BLOCKED \\
+      --claim "<what this shows>" --subject <file you reviewed> \\
+      --actor-id {actor}
+
+The record is rejected unless it cites something checkable. That is the point:
+core/EVIDENCE.aol requires evidence to be recorded, not asserted.
+
+Before you finish, record your evidence. A role that exits with no evidence has
+produced nothing the next role can rely on.
 """
 
 
@@ -64,8 +80,7 @@ def build(root=ROOT, model=None):
             prompt=role_prompt(policy, core),
             tools=policy.tools,
             model=model,
-            # Review roles must not be able to accept their own edits.
-            permissionMode='plan' if not policy.may_write_source else 'default',
+            permissionMode='default',
         )
     return out
 

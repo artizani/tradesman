@@ -44,7 +44,8 @@ async def run_role(root, project, task, role, brief, model=None, session=''):
     actor = f'{role.lower()}-{session or "run"}'
 
     options = ClaudeAgentOptions(
-        system_prompt=agents_mod.role_prompt(policy, agents_mod.core_context(root)),
+        system_prompt=agents_mod.role_prompt(
+            policy, agents_mod.core_context(root), actor=actor),
         allowed_tools=policy.tools,
         hooks=gov.hooks(),
         permission_mode='bypassPermissions',  # the hooks are the gate, not a prompt
@@ -62,7 +63,8 @@ async def run_role(root, project, task, role, brief, model=None, session=''):
                 if getattr(block, 'text', None):
                     text.append(block.text)
 
-    return {'role': role, 'actor': actor, 'denials': gov.denials,
+    gov.append_handoff(role, actor)
+    return {'role': role, 'actor': actor, 'denials': gov.denials, 'wrote': gov.writes,
             'evidence': gov.recorded, 'output': '\n'.join(text)}
 
 
@@ -92,7 +94,10 @@ async def main():
         print(f'--- {role} ---')
         r = await run_role(root, a.project, a.task, role, brief,
                            model=a.model, session=a.session)
+        print(f'    wrote={r["wrote"] or "-"}')
         print(f'    denials={len(r["denials"])} evidence={len(r["evidence"])}')
+        if r['output']:
+            print('    ' + r['output'].strip().splitlines()[-1][:200])
         for d in r['denials']:
             print(f'    denied {d["tool"]} -> {d["path"]}')
     print('\nrun complete; enforce with:')

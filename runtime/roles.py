@@ -55,7 +55,14 @@ class RolePolicy:
 
     @property
     def tools(self):
-        return WRITE_TOOLS if self.may_write_source else READ_ONLY_TOOLS
+        """Every role gets the write tools; the PreToolUse hook is the gate.
+
+        Withholding Write from review roles looked like defence in depth, but it
+        also blocked ARCH from writing an ADR -- WRITE=DESIGN+ADR+RISK is a real
+        write, just not a source write. One gate, derived from AOL, is both
+        correcter and easier to reason about than two that disagree.
+        """
+        return WRITE_TOOLS
 
     def may_write(self, path, prod_globs, test_globs):
         """Return None if allowed, else the AOL rule being violated."""
