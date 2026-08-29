@@ -39,9 +39,10 @@ async def run_role(root, project, task, role, brief, model=None, session=''):
     """One role, one agent, one identity."""
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 
-    gov = Governor(root, project, task, default_role=role, session=session)
-    policy = gov.policies[role]
     actor = f'{role.lower()}-{session or "run"}'
+    gov = Governor(root, project, task, default_role=role, session=session,
+                   actor_id=actor)
+    policy = gov.policies[role]
 
     options = ClaudeAgentOptions(
         system_prompt=agents_mod.role_prompt(

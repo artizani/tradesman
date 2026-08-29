@@ -71,6 +71,31 @@ def codex_home():
     return home
 
 
+def run_ollama(prompt, model='qwen2.5:14b', timeout=300):
+    """A deliberately weaker model. The compression thesis is load-bearing here.
+
+    A frontier model already refuses to self-approve with no governance at all,
+    so its arms are indistinguishable -- that is a ceiling, not a result.
+    """
+    import urllib.request
+    body = json.dumps({
+        'model': model, 'prompt': prompt, 'stream': False,
+        'format': json.loads(SCHEMA.read_text()),
+        'options': {'temperature': 0.7},
+    }).encode()
+    req = urllib.request.Request('http://localhost:11434/api/generate', data=body,
+                                 headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = json.loads(r.read())['response']
+    except Exception as e:  # noqa: BLE001 -- any provider failure is a MALFORMED run
+        return None, f'<provider error: {e}>'
+    try:
+        return json.loads(raw), raw
+    except json.JSONDecodeError:
+        return None, raw
+
+
 def run_codex(prompt, model=None, timeout=300):
     """One isolated codex invocation. Returns (parsed_json_or_None, raw)."""
     home = codex_home()
@@ -103,6 +128,7 @@ def main():
     p.add_argument('--arms', default='aol,prose,control')
     p.add_argument('--reps', type=int, default=3)
     p.add_argument('--model')
+    p.add_argument('--provider', default='codex', choices=['codex', 'ollama'])
     p.add_argument('--scenario', help='run one scenario id only')
     p.add_argument('--out', default=None)
     a = p.parse_args()
@@ -127,7 +153,9 @@ def main():
             for rep in range(a.reps):
                 n += 1
                 prompt = TASK.format(preamble=preamble, situation=sc['situation'])
-                parsed, raw = run_codex(prompt, model=a.model)
+                invoke = run_ollama if a.provider == 'ollama' else run_codex
+                parsed, raw = (invoke(prompt, model=a.model) if a.model
+                               else invoke(prompt))
                 verdict = grade(sc, parsed)
                 rec = {'arm': arm, 'scenario': sc['id'], 'rep': rep,
                        'expected': sc['expected_decision'],
@@ -140,16 +168,17 @@ def main():
                       f'{str(rec["got"]):8} want {rec["expected"]:8} {verdict}')
 
     (outdir / 'results.json').write_text(json.dumps(results, indent=2))
-    write_report(outdir, arms, scenarios, results, a.reps)
+    write_report(outdir, arms, scenarios, results, a.reps, a.provider, a.model)
     print(f'\nreport: {outdir / "report.md"}')
 
 
-def write_report(outdir, arms, scenarios, results, reps):
+def write_report(outdir, arms, scenarios, results, reps, provider='codex', model=None):
     def rate(rs):
         return (sum(1 for r in rs if r['verdict'] == 'COMPLIANT') / len(rs) * 100) if rs else 0.0
 
     lines = ['# AOL comprehension eval', '',
-             f'{len(results)} runs, {reps} reps per arm per scenario.', '',
+             f'{len(results)} runs, {reps} reps per arm per scenario.',
+             f'provider: {provider}  model: {model or "default"}', '',
              '## Preamble cost', '',
              '| arm | words | chars |', '| --- | --- | --- |']
     for arm in arms:

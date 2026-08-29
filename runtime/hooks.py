@@ -31,11 +31,39 @@ _SHELL_MUTATES = re.compile(
 _SHELL_TOKEN = re.compile(r'[\w./\-]*[/.][\w./\-]+')
 _BARE_FILE = re.compile(r'\b[\w\-]+\.[A-Za-z][\w]*\b')
 
+# Shell separators, so a command is examined segment by segment. Built by
+# escaping literals rather than hand-written, because a hand-written
+# `&&|\|\||;|\|` is one slip away from containing an empty alternative, which
+# matches everywhere and silently splits between every character.
+_SEP = re.compile('|'.join(re.escape(x) for x in ('&&', '||', ';', '|', '\n')))
+_ENV_PREFIX = re.compile(r'^(?:\w+=\S+\s+)+')
+
+# A command counts as verification only when a shell segment *runs* one of
+# these. Prefixes must be real paths (`.venv/bin/pytest`), never arbitrary
+# non-space runs -- `\S*pytest` happily matched inside `print(pytest.__version__)`.
+_PATH = r'(?:[\w.\-]+/)*'
+_INTERP = re.compile(r'^' + _PATH + r'(?:python3?|bash|sh|node)\s+')
+_RUNNER = re.compile(
+    r'^(?:'
+    r'-m\s+(?:pytest|unittest)'
+    r'|' + _PATH + r'pytest'
+    r'|npm\s+(?:run\s+)?test'
+    r'|yarn\s+test'
+    r'|npx\s+playwright\s+test'
+    r'|jest'
+    r'|go\s+test'
+    r'|cargo\s+test'
+    r'|' + _PATH + r'[\w\-]*(?:selftest|enforce)\.py'
+    r'|' + _PATH + r'[\w\-]*postdeploy[\w.\-]*'
+    r')\b'
+)
+
 
 class Governor:
     """Holds the governed context and produces the SDK hook callbacks."""
 
-    def __init__(self, root, project, task, default_role=None, session=''):
+    def __init__(self, root, project, task, default_role=None, session='',
+                 actor_id=None):
         # Resolved: an unresolved root breaks relative_to() wherever the path
         # crosses a symlink (macOS /var -> /private/var), silently sending every
         # path down the "not source" branch and disabling the policy.
@@ -44,6 +72,7 @@ class Governor:
         self.task = task
         self.default_role = default_role
         self.session = session
+        self.actor_id = actor_id
         self.policies = roles_mod.load(self.root)
         self.prod_globs, self.test_globs = roles_mod.project_globs(self.root, project)
         self.denials = []
@@ -60,7 +89,20 @@ class Governor:
         return self.default_role
 
     def actor_for(self, input_data):
-        return input_data.get('agent_id') or self.default_role or 'runtime'
+        """A stable string identity. Never trust the raw hook value's shape.
+
+        agent_id has arrived as a dict containing the operator's email address,
+        which then leaked into the evidence ledger. Identity is an actor id, not
+        whatever the harness happened to attach.
+        """
+        if self.actor_id:
+            return self.actor_id
+        raw = input_data.get('agent_id')
+        if isinstance(raw, dict):
+            raw = raw.get('id')
+        if isinstance(raw, str) and raw:
+            return raw
+        return (self.default_role or 'runtime').lower()
 
     # -- candidate paths ---------------------------------------------------
     def _paths(self, tool_name, tool_input):
@@ -169,8 +211,26 @@ class Governor:
 
     @staticmethod
     def _is_verification(command):
-        return bool(re.search(r'\b(pytest|npm\s+test|jest|playwright|go\s+test|selftest'
-                              r'|enforce\.py|postdeploy)\b', command))
+        """True only if a segment of the command actually invokes a test runner.
+
+        This was a substring search, which recorded `cat notes && python3 -c
+        "import pytest"` as a PASSING TEST -- a reconnaissance command minted as
+        evidence because it mentioned pytest. That is the precise failure this
+        system exists to prevent, so the match is anchored per shell segment:
+        the runner must be what the segment *runs*, not a word inside it.
+        """
+        for seg in _SEP.split(command):
+            seg = seg.strip().lstrip('(').strip()
+            seg = _ENV_PREFIX.sub('', seg)  # FOO=bar pytest -> pytest
+            if _RUNNER.match(seg):
+                return True
+            # `python3 -m pytest`, `python3 compiler/selftest.py`: strip the
+            # interpreter and re-test. `python3 -c "..."` never matches, because
+            # -c is not a runner -- which is what keeps code probes out.
+            stripped = _INTERP.sub('', seg, count=1)
+            if stripped != seg and _RUNNER.match(stripped):
+                return True
+        return False
 
     @staticmethod
     def _exit_code(response):

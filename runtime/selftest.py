@@ -80,6 +80,39 @@ async def test_policy(root):
     return passed, failed
 
 
+VERIFICATION_CASES = [
+    # A reconnaissance command that merely mentions a runner is not evidence.
+    # This exact command was minted as a PASSING TEST by a substring match.
+    ('echo h && cat memory/handoffs.ndjson && python3 -c "import pytest;print(pytest.__version__)"', False),
+    ('cat tests/test_grader.py', False),
+    ('grep -rn pytest .', False),
+    ('python3 -c "print(pytest.__version__)"', False),
+    ('echo "run pytest"', False),
+    ('pytest -q tests/', True),
+    ('python3 -m pytest -q', True),
+    ('.venv/bin/python -m unittest discover -s tests', True),
+    ('.venv/bin/pytest -q', True),
+    ('cd proj && npm test', True),
+    ('go test ./...', True),
+    ('python3 compiler/selftest.py', True),
+    ('CI=1 pytest -q', True),
+    ('./scripts/postdeploy-check.sh --journey CJ-1', True),
+    ('cat x.py ; pytest -q', True),
+]
+
+
+def test_verification():
+    """Only a command that RUNS a test runner may mint test evidence."""
+    from runtime.hooks import Governor
+    passed = failed = 0
+    for cmd, want in VERIFICATION_CASES:
+        got = Governor._is_verification(cmd)
+        ok = got == want
+        passed, failed = passed + ok, failed + (not ok)
+        print(f'  {"ok  " if ok else "FAIL"} {"is" if want else "not"} verification: {cmd[:58]}')
+    return passed, failed
+
+
 async def test_live(root):
     """No governance prompt. Only the hooks. The agent will genuinely try."""
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
@@ -136,6 +169,9 @@ async def main():
         root = make_root(tmp)
         print('policy matrix (role x tool x path, derived from core/ROLES.aol)')
         p, f = await test_policy(root)
+        print('\nverification detection (what may mint test evidence)')
+        vp, vf = test_verification()
+        p, f = p + vp, f + vf
         if live:
             print('\nlive agent')
             lp, lf = await test_live(root)
