@@ -172,6 +172,37 @@ async def test_risk(root):
     return passed, failed
 
 
+def test_delivery(root):
+    """A gate nobody implemented must refuse, not quietly pass."""
+    from runtime import delivery
+    passed = failed = 0
+
+    ok, msg = delivery.run_command_role(root, 'selftest', 'TASK-001',
+                                        'DEPLOY', 'DEPLOY', session='st')
+    checks = [('undeclared DEPLOY_CMD refuses', not ok),
+              ('and says why', 'declares no DEPLOY_CMD' in msg)]
+
+    # Declare a command that fails, and check the verdict follows the exit code.
+    pj = root / 'projects' / 'selftest' / 'project.aol'
+    pj.write_text(pj.read_text() + 'DEPLOY_CMD=sh -c "echo boom; exit 3"\n')
+    ok, msg = delivery.run_command_role(root, 'selftest', 'TASK-001',
+                                        'DEPLOY', 'DEPLOY', session='st')
+    checks.append(('failing deploy reports failure', not ok and 'exit=3' in msg))
+
+    import json as _json
+    led = root / 'projects' / 'selftest' / 'evidence' / 'ledger.ndjson'
+    recs = [_json.loads(x) for x in led.read_text().splitlines() if x.strip()]
+    checks.append(('and records verdict=FAIL, not PASS',
+                   bool(recs) and recs[-1]['verdict'] == 'FAIL'))
+    checks.append(('stamped trust=RUNTIME',
+                   bool(recs) and recs[-1]['actor']['trust'] == 'RUNTIME'))
+
+    for name, okc in checks:
+        passed, failed = passed + okc, failed + (not okc)
+        print(f'  {"ok  " if okc else "FAIL"} {name}')
+    return passed, failed
+
+
 async def test_live(root):
     """No governance prompt. Only the hooks. The agent will genuinely try."""
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
@@ -234,6 +265,9 @@ async def main():
         print('\nrisk: a declaration may only add scrutiny')
         rp, rf = await test_risk(root)
         p, f = p + rp, f + rf
+        print('\ndelivery: deploy evidence is executed, not narrated')
+        dp, df = test_delivery(root)
+        p, f = p + dp, f + df
         if live:
             print('\nlive agent')
             lp, lf = await test_live(root)

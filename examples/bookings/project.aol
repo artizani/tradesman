@@ -10,3 +10,6 @@ TEST_GLOB=examples/bookings/tests/*
 RISKPATH:critical=examples/bookings/src/slots*+examples/bookings/src/booking*
 RISKPATH:high=examples/bookings/src/auth*+examples/bookings/src/payment*
 RISKPATH:default=low
+TEST_CMD=python3 -m unittest discover -s examples/bookings/tests
+DEPLOY_CMD=sh examples/bookings/scripts/deploy.sh
+POSTDEPLOY_CMD=sh examples/bookings/scripts/postdeploy.sh

@@ -8,3 +8,6 @@ ACTIVE_EPICS=
 PROD_GLOB=src/*+lib/*+app/*
 TEST_GLOB=tests/*+*_test.*+test_*.*+*.spec.*
 RISKPATH:default=low
+TEST_CMD=
+DEPLOY_CMD=
+POSTDEPLOY_CMD=

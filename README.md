@@ -148,11 +148,41 @@ booking screen is out of scope, and a reviewer can say so with a rule to point a
 `JOURNEY=` means this task **delivers** that journey. Use `SERVES=` when a task merely
 contributes to one — the difference changes how much process the task gets.
 
-### 5. Run it
+### 5. Say how the project is tested and deployed — back in `project.aol`
+
+```aol
+TEST_CMD=python3 -m unittest discover -s examples/bookings/tests
+DEPLOY_CMD=sh examples/bookings/scripts/deploy.sh
+POSTDEPLOY_CMD=sh examples/bookings/scripts/postdeploy.sh
+```
+
+These are run by the harness and their **exit codes are recorded**, so a passing verdict
+can never sit on a failing command. No model is involved: an agent that "deploys" and then
+reports success is exactly the assertion this framework refuses to take on trust.
+
+Nothing is guessed. A project that has not declared `DEPLOY_CMD` cannot produce deploy
+evidence, and is told so — a gate nobody implemented must not quietly pass.
+
+The example's [`postdeploy.sh`](examples/bookings/scripts/postdeploy.sh) is worth copying
+in spirit: it does not smoke-test that the service is up, it **asserts INV-101 against
+what was deployed**. That is what post-deploy evidence is for.
+
+### 6. Run it
 
 ```bash
 .venv/bin/python -m runtime.orchestrator --project bookings --task TASK-101
+
+# ...and turn the result into a branch, or a pull request:
+.venv/bin/python -m runtime.orchestrator --project bookings --task TASK-101 --commit
+.venv/bin/python -m runtime.orchestrator --project bookings --task TASK-101 --commit --pr
 ```
+
+`--commit` puts the increment on its own branch — local and reversible. `--pr` pushes and
+opens a pull request, which reaches outside your machine, so it only ever happens when you
+ask for it by name.
+
+The commit records what each role did and what it was refused, and points at the ledger
+and the command to verify it.
 
 ---
 
@@ -288,10 +318,10 @@ language.
 
 Stated plainly, because a framework about honest evidence should be honest about itself.
 
-- **No deployment yet.** `DEPLOY` and `POSTDEPLOY` are defined roles with no
-  implementation, and there is no git integration — a run leaves changes in your working
-  tree for you to commit. Because `GATE:critical` requires deploy and post-deploy
-  evidence, **a critical task cannot currently be marked done.**
+- **Deploy commands are yours to write.** AgentOS runs what your project declares and
+  records the exit code; it does not know how to deploy your software and will not guess.
+  A project with no `DEPLOY_CMD` cannot produce deploy evidence, and is told so rather
+  than having the gate silently skipped.
 - **Shell is the weak edge.** Path policy on `Bash` commands is deliberately over-broad
   rather than exact, because shell cannot be parsed reliably. A false denial routes work
   to the right role; the compiler layer is the backstop for what slips through.
@@ -307,7 +337,7 @@ Stated plainly, because a framework about honest evidence should be honest about
 | --- | --- |
 | `core/` | Generic governance: system, process, roles, quality, precedence, evidence |
 | `compiler/` | Deterministic checks — `validate`, `enforce`, `evidence`, `selftest` |
-| `runtime/` | Agent SDK runtime — roles, agents, hooks, orchestrator |
+| `runtime/` | Agent SDK runtime — roles, agents, hooks, orchestrator, delivery |
 | `examples/bookings/` | The worked example in this README |
 | `examples/sample-project/` | A payments variant |
 | `templates/project/` | Copy this to start |

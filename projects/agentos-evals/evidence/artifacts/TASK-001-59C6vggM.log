@@ -1,0 +1,11 @@
+$ mkdir -p projects/agentos-evals/evidence/artifacts
+.venv/bin/python -m unittest discover -s projects/agentos-evals/tests -t . -v > projects/agentos-evals/evidence/artifacts/TASK-001-unit-run.txt 2>&1
+echo "EXIT=$?"
+tail -6 projects/agentos-evals/evidence/artifacts/TASK-001-unit-run.txt
+EXIT=0
+test_t13_every_pair_returns_exactly_one_of_the_three_strings (projects.agentos-evals.tests.test_grader.TotalityTest.test_t13_every_pair_returns_exactly_one_of_the_three_strings) ... ok
+
+----------------------------------------------------------------------
+Ran 37 tests in 0.005s
+
+OK

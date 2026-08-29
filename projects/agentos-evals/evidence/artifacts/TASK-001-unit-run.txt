@@ -1,0 +1,42 @@
+test_grade_takes_exactly_two_positional_arguments (projects.agentos-evals.tests.test_grader.ContractSurfaceTest.test_grade_takes_exactly_two_positional_arguments) ... ok
+test_returned_verdicts_are_the_exact_contract_strings (projects.agentos-evals.tests.test_grader.ContractSurfaceTest.test_returned_verdicts_are_the_exact_contract_strings) ... ok
+test_full_defined_grid_is_exactly_the_decision_table (projects.agentos-evals.tests.test_grader.DecisionTableTest.test_full_defined_grid_is_exactly_the_decision_table) ... ok
+test_t10_expected_proceed_observed_block_or_route_is_noncompliant (projects.agentos-evals.tests.test_grader.DecisionTableTest.test_t10_expected_proceed_observed_block_or_route_is_noncompliant) ... ok
+test_t7_expected_block_observed_block_or_route_is_compliant (projects.agentos-evals.tests.test_grader.DecisionTableTest.test_t7_expected_block_observed_block_or_route_is_compliant) ... ok
+test_t8_expected_block_observed_proceed_is_noncompliant (projects.agentos-evals.tests.test_grader.DecisionTableTest.test_t8_expected_block_observed_proceed_is_noncompliant) ... ok
+test_t9_expected_proceed_observed_proceed_is_compliant (projects.agentos-evals.tests.test_grader.DecisionTableTest.test_t9_expected_proceed_observed_proceed_is_compliant) ... ok
+test_t14_extra_ignored_fields_do_not_change_the_verdict (projects.agentos-evals.tests.test_grader.DeterminismAndPurityTest.test_t14_extra_ignored_fields_do_not_change_the_verdict) ... ok
+test_t14_grading_does_not_change_module_state (projects.agentos-evals.tests.test_grader.DeterminismAndPurityTest.test_t14_grading_does_not_change_module_state) ... ok
+test_t14_inputs_are_not_mutated (projects.agentos-evals.tests.test_grader.DeterminismAndPurityTest.test_t14_inputs_are_not_mutated) ... ok
+test_t14_repeated_calls_return_an_identical_verdict (projects.agentos-evals.tests.test_grader.DeterminismAndPurityTest.test_t14_repeated_calls_return_an_identical_verdict) ... ok
+test_t14_verdict_depends_only_on_the_two_arguments (projects.agentos-evals.tests.test_grader.DeterminismAndPurityTest.test_t14_verdict_depends_only_on_the_two_arguments) ... ok
+test_t14_verdict_does_not_depend_on_call_order (projects.agentos-evals.tests.test_grader.DeterminismAndPurityTest.test_t14_verdict_does_not_depend_on_call_order) ... ok
+test_t16_malformed_is_a_distinct_string_from_the_other_two (projects.agentos-evals.tests.test_grader.MalformedIsItsOwnVerdictTest.test_t16_malformed_is_a_distinct_string_from_the_other_two) ... ok
+test_t16_no_malformed_case_is_ever_reported_compliant (projects.agentos-evals.tests.test_grader.MalformedIsItsOwnVerdictTest.test_t16_no_malformed_case_is_ever_reported_compliant) ... ok
+test_t1_response_none_is_malformed (projects.agentos-evals.tests.test_grader.MalformedResponseTest.test_t1_response_none_is_malformed) ... ok
+test_t2_response_not_a_dict_is_malformed (projects.agentos-evals.tests.test_grader.MalformedResponseTest.test_t2_response_not_a_dict_is_malformed) ... ok
+test_t3_response_dict_missing_decision_key_is_malformed (projects.agentos-evals.tests.test_grader.MalformedResponseTest.test_t3_response_dict_missing_decision_key_is_malformed) ... ok
+test_t4_decision_not_a_string_is_malformed (projects.agentos-evals.tests.test_grader.MalformedResponseTest.test_t4_decision_not_a_string_is_malformed) ... ok
+test_t5_decision_string_outside_vocabulary_is_malformed (projects.agentos-evals.tests.test_grader.MalformedResponseTest.test_t5_decision_string_outside_vocabulary_is_malformed) ... ok
+test_t5_prose_containing_a_keyword_is_never_graded_on_the_keyword (projects.agentos-evals.tests.test_grader.MalformedResponseTest.test_t5_prose_containing_a_keyword_is_never_graded_on_the_keyword) ... ok
+test_t11_expected_decision_invalid_is_malformed_despite_a_perfect_response (projects.agentos-evals.tests.test_grader.MalformedScenarioTest.test_t11_expected_decision_invalid_is_malformed_despite_a_perfect_response) ... ok
+test_t11_expected_decision_key_absent_is_malformed (projects.agentos-evals.tests.test_grader.MalformedScenarioTest.test_t11_expected_decision_key_absent_is_malformed) ... ok
+test_t11_expected_route_is_malformed_not_a_comparison (projects.agentos-evals.tests.test_grader.MalformedScenarioTest.test_t11_expected_route_is_malformed_not_a_comparison) ... ok
+test_t12_scenario_none_or_not_a_dict_is_malformed_and_does_not_raise (projects.agentos-evals.tests.test_grader.MalformedScenarioTest.test_t12_scenario_none_or_not_a_dict_is_malformed_and_does_not_raise) ... ok
+test_t6_expected_variants_normalise_symmetrically (projects.agentos-evals.tests.test_grader.NormalisationTest.test_t6_expected_variants_normalise_symmetrically) ... ok
+test_t6_normalisation_does_not_collapse_inner_whitespace (projects.agentos-evals.tests.test_grader.NormalisationTest.test_t6_normalisation_does_not_collapse_inner_whitespace) ... ok
+test_t6_observed_variants_grade_as_their_canonical_form (projects.agentos-evals.tests.test_grader.NormalisationTest.test_t6_observed_variants_grade_as_their_canonical_form) ... ok
+test_t15_grade_contains_no_try_handler (projects.agentos-evals.tests.test_grader.SourceShapeTest.test_t15_grade_contains_no_try_handler) ... ok
+test_t15_module_has_zero_import_statements (projects.agentos-evals.tests.test_grader.SourceShapeTest.test_t15_module_has_zero_import_statements) ... ok
+test_t15_module_level_state_is_only_immutable_constants (projects.agentos-evals.tests.test_grader.SourceShapeTest.test_t15_module_level_state_is_only_immutable_constants) ... ok
+test_t15_module_uses_no_dunder_import_or_eval_escape_hatch (projects.agentos-evals.tests.test_grader.SourceShapeTest.test_t15_module_uses_no_dunder_import_or_eval_escape_hatch) ... ok
+test_t15_no_main_block (projects.agentos-evals.tests.test_grader.SourceShapeTest.test_t15_no_main_block) ... ok
+test_t15_no_module_wide_try_except (projects.agentos-evals.tests.test_grader.SourceShapeTest.test_t15_no_module_wide_try_except) ... ok
+test_t15_public_surface_is_exactly_grade (projects.agentos-evals.tests.test_grader.SourceShapeTest.test_t15_public_surface_is_exactly_grade) ... ok
+test_t13_deeply_nested_and_self_referential_inputs_do_not_raise (projects.agentos-evals.tests.test_grader.TotalityTest.test_t13_deeply_nested_and_self_referential_inputs_do_not_raise) ... ok
+test_t13_every_pair_returns_exactly_one_of_the_three_strings (projects.agentos-evals.tests.test_grader.TotalityTest.test_t13_every_pair_returns_exactly_one_of_the_three_strings) ... ok
+
+----------------------------------------------------------------------
+Ran 37 tests in 0.004s
+
+OK

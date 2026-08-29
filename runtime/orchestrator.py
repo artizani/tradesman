@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / 'compiler'))
 import aol  # noqa: E402
 from runtime import agents as agents_mod  # noqa: E402
 from runtime.hooks import Governor  # noqa: E402
+from runtime import delivery  # noqa: E402
 
 
 def gate_pairs(root):
@@ -120,7 +121,8 @@ async def run_role(root, project, task, role, brief, model=None, session='',
             'output': '\n'.join(text)}
 
 
-def record_risk(root, project, task, declared, floor, effective, flow, session):
+def record_risk(root, project, task, declared, floor, effective, flow, session,
+                touched=None):
     """Stamp the risk decision as trust=RUNTIME evidence before any role runs.
 
     This is what makes the ratchet checkable later: enforce.py can compare the
@@ -136,7 +138,8 @@ def record_risk(root, project, task, declared, floor, effective, flow, session):
         '--actor-id', f'risk-{session or "run"}', '--trust', 'RUNTIME',
         '--declared', declared, '--floor', floor, '--effective', effective,
         '--flow', '>'.join(flow or []),
-    ], capture_output=True, text=True, cwd=root)
+    ] + [x for t in (touched or []) for x in ('--touched', t)],
+        capture_output=True, text=True, cwd=root)
 
 
 class Run:
@@ -146,6 +149,10 @@ class Run:
         self.root, self.project, self.task, self.goal = root, project, task, goal
         self.history = []
         self.risk = None
+        self.declared = self.floor = None
+        self.flow = []
+        self.session = 'run'
+        self.commit = self.pr = False
 
     def note(self, result):
         self.history.append(result)
@@ -220,6 +227,10 @@ async def main():
     # --skip-arch is gone: it was an unbounded way to drop the design gate.
     # FLOW:low subsumes it, and the floor decides whether low is available.
     p.add_argument('--risk', help='RAISE the risk level; it can never lower it')
+    p.add_argument('--commit', action='store_true',
+                   help='commit the delivered increment to its own branch (local)')
+    p.add_argument('--pr', action='store_true',
+                   help='push the branch and open a pull request (reaches outside)')
     a = p.parse_args()
 
     root = Path(a.root)
@@ -245,7 +256,9 @@ async def main():
               f'Under-declaration is not arbitrated -- it is ignored.')
     print(f'  flow={">".join(steps) if steps else "default"}  rework_max={max_rework}\n')
 
-    run.risk = risk
+    run.risk, run.declared, run.floor = risk, declared, floor
+    run.flow, run.session = steps or [], a.session
+    run.commit, run.pr = a.commit, a.pr
     record_risk(root, a.project, a.task, declared, floor, risk, steps, a.session)
 
     if steps:
@@ -254,6 +267,16 @@ async def main():
         for role in steps:
             if role in reviewers:
                 continue          # runs as the second half of its gate
+            if role in ('DEPLOY', 'POSTDEPLOY'):
+                ok, msg = delivery.run_command_role(
+                    run.root, a.project, a.task, role, role, a.session)
+                print(f'--- {role} ---\n    {msg}')
+                run.note({'role': role, 'actor': f'{role.lower()}-{a.session}',
+                          'denials': [], 'wrote': [], 'evidence': [msg],
+                          'breaches': [], 'output': msg})
+                if not ok:
+                    return finish(run, converged=False)
+                continue
             if role in pairs:
                 if not await gated(run, role, pairs[role], a.model, a.session,
                                    max_rework if pairs[role] in steps else 0):
@@ -284,6 +307,33 @@ async def main():
     run.note(u)
     print(f'    wrote={u["wrote"] or "-"} evidence={len(u["evidence"])}')
     return finish(run, converged=True)
+
+
+def deliver(run, commit, pr):
+    """Turn a delivered increment into a branch, and optionally a PR."""
+    summary = '\n'.join(
+        f'- {h["role"]}: wrote {", ".join(h["wrote"]) or "nothing"}'
+        + (f'; {len(h["denials"])} write(s) denied' if h['denials'] else '')
+        for h in run.history)
+    try:
+        branch, sha = delivery.branch_and_commit(
+            run.root, run.project, run.task, run.goal.splitlines()[0][:72],
+            summary, run.session)
+    except Exception as e:  # noqa: BLE001 -- report, never fail the increment on git
+        print(f'  commit failed: {e}')
+        return
+    if sha is None:
+        print(f'  nothing to commit on {branch}')
+        return
+    print(f'  committed {sha[:9]} on {branch}')
+    if not pr:
+        print(f'  open a PR with: git push -u origin {branch} && gh pr create')
+        return
+    url, err = delivery.open_pr(
+        run.root, branch, f'{run.task}: {run.goal.splitlines()[0][:60]}',
+        f'AgentOS increment.\n\n{summary}\n\nVerify:\n'
+        f'`python3 compiler/enforce.py --root . --project {run.project} --strict`')
+    print(f'  PR: {url}' if url else f'  PR failed: {err}')
 
 
 def finish(run, converged):
@@ -322,6 +372,18 @@ def finish(run, converged):
         print(f'  production files: {sorted(set(code))}')
     ok = all(c[1] for c in checks)
     print(f'\nINCREMENT={"DELIVERED" if ok else "NOT_DELIVERED"}')
+
+    # Stamp git's view of the diff, so RISKPATH is judged against what was
+    # really written rather than what a record chose to cite.
+    try:
+        record_risk(run.root, run.project, run.task, run.declared, run.floor,
+                    run.risk, run.flow, f'{run.session}-close',
+                    touched=delivery.touched_files(run.root))
+    except Exception as e:  # noqa: BLE001
+        print(f'  (could not stamp touched files: {e})')
+
+    if ok and run.commit:
+        deliver(run, run.commit, run.pr)
     return 0 if ok else 1
 
 

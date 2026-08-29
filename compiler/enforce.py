@@ -226,6 +226,21 @@ def check_riskpath(root, records):
     violations = []
     eff_by_task = {r.get('task'): r.get('effective')
                    for r in records if r.get('kind') == 'RISK'}
+    # git's view of the diff, where we have it. The hook's shell detection is
+    # best-effort and a record only cites what it chose to cite; git saw
+    # everything that was actually written.
+    for r in records:
+        if r.get('kind') != 'RISK' or not r.get('touched'):
+            continue
+        run_at, project = r.get('effective'), r.get('project')
+        for path in r['touched']:
+            lvl = aol.path_risk(root, project, path)
+            if lvl and aol.rank(root, lvl) > aol.rank(root, run_at):
+                violations.append(
+                    f'{r.get("id")}: git shows {path} was changed, which is '
+                    f'RISKPATH:{lvl}, but the run was risk={run_at} '
+                    f'(core/PROCESS.aol RISK_EFFECTIVE)')
+
     for r in records:
         task, project = r.get('task'), r.get('project')
         run_at = eff_by_task.get(task)

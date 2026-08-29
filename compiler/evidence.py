@@ -126,6 +126,8 @@ def build_record(args, roles, records):
     for field in ('declared', 'floor', 'effective', 'flow'):
         if getattr(args, field, None):
             record[field] = getattr(args, field)
+    if getattr(args, 'touched', None):
+        record['touched'] = args.touched
     return record, []
 
 
@@ -217,6 +219,8 @@ def main():
     r.add_argument('--floor', help='kind=RISK: the derived floor')
     r.add_argument('--effective', help='kind=RISK: the level actually run')
     r.add_argument('--flow', help='kind=RISK: the role sequence executed')
+    r.add_argument('--touched', action='append',
+                   help='kind=RISK: a file git says the increment changed')
     r.set_defaults(fn=cmd_record)
 
     v = sub.add_parser('verify', help='re-hash cited paths and report drift')

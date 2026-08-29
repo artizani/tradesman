@@ -1,0 +1,19 @@
+BASELINE (unmutated): exit=0  OK
+M1 shared vocabulary (D-7 trap): expected accepts ROUTE        KILLED (exit=1, failing tests=12)
+M2 D-8 flipped: expected BLOCK + ROUTE -> NONCOMPLIANT         KILLED (exit=1, failing tests=6)
+M3 substring matching (the ADR-001 failure mode)               KILLED (exit=1, failing tests=35)
+M4 catch-all except (D-3 BLOCKING ban)                         KILLED (exit=1, failing tests=2)
+M5 normalisation dropped: no strip()                           KILLED (exit=1, failing tests=39)
+M6 normalisation dropped: no upper()                           KILLED (exit=1, failing tests=43)
+M7 MALFORMED collapsed into NONCOMPLIANT                       KILLED (exit=1, failing tests=289)
+M8 asymmetric normalisation: expected side not normalised      KILLED (exit=1, failing tests=30)
+M9 input mutation (D-10 breach)                                KILLED (exit=1, failing tests=7)
+M10 module state / memoisation (D-11 breach)                   KILLED (exit=1, failing tests=1)
+M11 an import appears (D-2 breach)                             KILLED (exit=1, failing tests=3)
+M12 DT:4 flipped: ban crossed scores COMPLIANT                 KILLED (exit=1, failing tests=3)
+M13 DT:7 flipped: expected PROCEED + ROUTE -> COMPLIANT        KILLED (exit=1, failing tests=4)
+M14 missing decision key defaults to PROCEED                   KILLED (exit=1, failing tests=14)
+M15 empty-string decision treated as BLOCK                     KILLED (exit=1, failing tests=15)
+M16 extra public name (D-1 surface breach)                     KILLED (exit=1, failing tests=1)
+
+mutants=16 killed=16 survived=0

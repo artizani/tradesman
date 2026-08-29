@@ -1,0 +1,7 @@
+$ .venv/bin/python -m unittest discover -s projects/agentos-evals/tests -t . 2>&1 | tail -5; echo "EXIT=${PIPESTATUS[0]}"
+    self.test = loader.discover(self.start, self.pattern, self.top)
+                ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/loader.py", line 334, in discover
+    raise ImportError('Start directory is not importable: %r' % start_dir)
+ImportError: Start directory is not importable: '/Users/user/Digital/Code/tradesman/projects/agentos-evals/tests'
+EXIT=
