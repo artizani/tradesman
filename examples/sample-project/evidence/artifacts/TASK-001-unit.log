@@ -1,0 +1,5 @@
+$ pytest -q tests/test_settlement.py
+tests/test_settlement.py::test_single_settlement PASSED
+tests/test_settlement.py::test_replay_is_idempotent PASSED
+tests/test_settlement.py::test_debits_equal_credits PASSED
+3 passed in 0.41s
