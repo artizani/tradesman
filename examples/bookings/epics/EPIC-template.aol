@@ -1,0 +1,11 @@
+AOL/1
+EPIC=<ID>
+TITLE=<title>
+STATUS=draft
+PRIORITY=<priority>
+GOAL=<goal>
+OUTCOME=<outcome>
+JOURNEY=<ids>
+INV=<ids>
+TASKS=<ids>
+DONE=TASKS+COMPONENT+E2E+POSTDEPLOY

@@ -1,66 +1,321 @@
-# AgentOS v1
+# AgentOS
 
-Place this folder at repository root as `agent-os/`.
+**Governance for AI agents that write software.** Agents plan, implement, test and review
+under roles they cannot step outside of, and every claim they make is backed by a record
+a script can check.
 
-## Bootstrap
-Add to AGENTS.md, CLAUDE.md or CODEX.md:
+Place this folder at your repository root as `agent-os/`.
 
-```text
-AgentOS governs delivery. Read ./agent-os/LLM_README.aol first.
-Resolve PROJECT, TASK and ROLE with context_resolver.py.
-Perform only the selected role. Never self-approve or collapse roles.
-Update state, evidence and handoff before exit.
-```
+---
 
-## Existing project
-Copy `templates/project` to `projects/<id>`, run retrofit_scan.py, describe current reality, map journeys and invariants, then create gap tasks.
+## The problem
 
-## New project
-Copy the template, define mission, domain, architecture, invariants and critical journeys before broad implementation.
+An unsupervised coding agent will, given the chance, write the code, write the tests for
+its own code, declare both correct, and tell you it is done. Each of those is reasonable
+on its own. Together they mean nothing was checked.
 
-## Commands
+AgentOS makes each of those failures impossible rather than discouraged:
+
+| What goes wrong | What stops it |
+| --- | --- |
+| Agent approves its own work | Roles run as distinct actors; the ledger rejects one actor holding both sides |
+| One agent plays coder, tester and reviewer | Each role is a separate agent with its own write policy |
+| A test fails, so the assertion gets loosened | Assertion counts are recorded; a drop without a defect fails the build |
+| "It works" with nothing to show for it | A record is rejected unless it cites a command, its exit code and a real file |
+| Evidence edited after the fact | Artifacts are hashed at attestation and re-hashed on verify |
+| Agent writes production code from a testing role | The harness denies the write before it happens |
+
+The last one is not a metaphor. Writes are intercepted and refused.
+
+## How it works
+
+Three layers, each doing what the layer above cannot.
+
+**AOL** — a compact language for governance rules. `core/*.aol` holds the generic
+engineering process; `projects/<id>/*.aol` holds what is true about your product. Rules
+live here and nowhere else: changing a rule means editing an `.aol` file, never Python.
+
+**The compiler** (`compiler/`) — deterministic Python that reads AOL and checks reality
+against it. No LLM, no network. This is your CI gate.
+
+**The runtime** (`runtime/`) — drives work through the roles using the Claude Agent SDK,
+denying out-of-role writes as they are attempted and recording evidence the model never
+authors, so it cannot fabricate its own attestation.
+
+The compiler works without the runtime. If your team uses a different agent, you still get
+the audit.
+
+---
+
+## Install
+
 ```bash
-python3 agent-os/compiler/validate.py --root agent-os
-python3 agent-os/compiler/context_resolver.py --root agent-os --project sample-project --task TASK-001 --role IMPLEMENT
-python3 agent-os/compiler/retrofit_scan.py --repo . --output agent-os/projects/my-project/retrofit-report.json
-```
+git clone https://github.com/artizani/tradesman.git agent-os
+cd agent-os
 
-## Enforcement
+python3 compiler/validate.py --root .        # structure check, no dependencies
+python3 compiler/selftest.py                 # proves each ban actually fires
 
-Structure and bans are checked by deterministic scripts, not trusted to the agent.
-
-```bash
-python3 compiler/validate.py --root . --strict   # structure, then the bans
-python3 compiler/enforce.py  --root .            # SOD, DONE gate, tamper, test weakening
-python3 compiler/selftest.py                     # proves each ban actually fires
-```
-
-Evidence is recorded, never asserted. A record is rejected unless it cites a command
-with its exit code and a file that exists; a PASS verdict may not sit on a non-zero exit.
-
-```bash
-python3 compiler/evidence.py record --project P --task TASK-001 --role UNIT \
-  --kind TEST --verdict PASS --claim "..." --command "pytest -q" --exit-code 0 \
-  --artifact path/to/output.log --actor-id unit-01
-python3 compiler/evidence.py verify --root .     # re-hash everything; detect tampering
-```
-
-## Runtime
-
-`runtime/` drives work through the role flow using the Claude Agent SDK, where the bans
-are enforced by the harness rather than requested of the model. See `runtime/README.md`.
-
-```bash
+# The runtime needs the Agent SDK:
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m runtime.selftest             # policy matrix
-.venv/bin/python -m runtime.orchestrator --project P --task TASK-001
+.venv/bin/python -m runtime.selftest         # 54 policy checks
 ```
 
-## Evals
+If `validate.py` prints `VALIDATION=PASS` and the selftests pass, you are ready.
 
-`evals/` measures whether AOL's compression costs compliance: the same 12 scenarios run
-under three arms that differ only by governance encoding (AOL, prose, none).
+---
+
+## Worked example: a clinic booking system
+
+A complete, runnable example lives in [`examples/bookings/`](examples/bookings/). It is a
+small appointment service with one rule that genuinely matters: **never double-book a
+clinician.** Copy it, change the names, and you have your own project.
+
+### 1. Describe the product — `project.aol`
+
+```aol
+AOL/1
+PROJECT=bookings
+NAME=ClinicBookings
+MISSION=LetPatientsBookAndNeverDoubleBookAClinician
+STATUS=active
+PROD_GLOB=examples/bookings/src/*
+TEST_GLOB=examples/bookings/tests/*
+RISKPATH:critical=examples/bookings/src/slots*+examples/bookings/src/booking*
+RISKPATH:high=examples/bookings/src/auth*+examples/bookings/src/payment*
+RISKPATH:default=low
+```
+
+`PROD_GLOB` and `TEST_GLOB` are how the harness knows production code from tests — that
+one distinction is what lets it refuse a tester writing implementation.
+
+`RISKPATH` says which files are dangerous. Slot-locking code is critical no matter how
+small the change; a formatting helper is not.
+
+### 2. Name what must never be false — `invariants.aol`
+
+This is the most important file in your project. Get it right and everything else works.
+
+```aol
+AOL/1
+INV:INV-101=NO_DOUBLE_BOOKED_SLOT
+INV:INV-102=EXPIRED_HOLD_RELEASES_SLOT
+INV:INV-103=CANCELLED_BOOKING_FREES_SLOT
+INV:INV-104=PATIENT_SEES_ONLY_OWN_BOOKINGS
+ASSERT:INV-101=CODE+UNIT+COMPONENT+E2E+MONITOR
+```
+
+`ASSERT:` says where each invariant must be proven. INV-101 has to hold in the code, in
+unit tests, in component tests, end to end, and in production monitoring — because a
+double booking discovered by a patient in a waiting room is not a bug report, it is an
+incident.
+
+### 3. Map the journeys — `journeys.aol`
+
+```aol
+AOL/1
+CJ CJ-BOOK-001: NAME=CLAIM_SLOT CRIT=critical ENTRY=SLOT_OFFERED
+    EXIT=BOOKED+SLOT_LOCKED+PATIENT_NOTIFIED INV=INV-101+INV-102
+    PATH=HAPPY+CONCURRENT_CLAIM+HOLD_EXPIRY+PAYMENT_TIMEOUT+RECOVERY
+    TEST=COMPONENT+DEPLOYED_E2E+POSTDEPLOY
+UJ UJ-BOOK-001: NAME=FIND_AND_BOOK ACTOR=PATIENT ENTRY=AUTHENTICATED
+    EXIT=SEES_CONFIRMATION_WITH_REFERENCE TEST=DEPLOYED_E2E
+```
+
+`PATH=` is the list of routes through the journey that must actually run in a test. The
+happy path is the one that never breaks; `CONCURRENT_CLAIM` is the one that does.
+
+`CRIT=critical` matters mechanically — see risk levels below.
+
+### 4. Define one increment — `tasks/TASK-101.aol`
+
+```aol
+AOL/1
+TASK=TASK-101
+STATUS=ready
+RISK=high
+GOAL=ClaimASlotSafelyUnderConcurrency
+IN=SLOT_LOCK+BOOKING_CREATE+EVENT
+OUT=PAYMENT+NOTIFICATION_TEMPLATES+UI
+JOURNEY=CJ-BOOK-001
+INV=INV-101+INV-102
+ACCEPT=ONE_BOOKING_PER_SLOT+CONCURRENT_CLAIM_LOSES_CLEANLY+EXPIRED_HOLD_FREES_SLOT
+```
+
+`IN=` and `OUT=` are the scope fence. `OUT=UI` means an agent that starts improving the
+booking screen is out of scope, and a reviewer can say so with a rule to point at.
+
+`JOURNEY=` means this task **delivers** that journey. Use `SERVES=` when a task merely
+contributes to one — the difference changes how much process the task gets.
+
+### 5. Run it
 
 ```bash
-python3 evals/run_eval.py --arms aol,prose,control --reps 3
+.venv/bin/python -m runtime.orchestrator --project bookings --task TASK-101
 ```
+
+---
+
+## Risk decides how much process a task gets
+
+Putting a formatting helper through a full architecture review is ceremony that buys no
+safety. Putting slot-locking code through no review at all is negligence. So the flow
+scales — and, critically, **nobody gets to choose it.**
+
+Effective risk is the **highest** of three signals: what the task declared, a floor
+derived from what the task cites, and the risk of the paths actually written. A
+declaration can only *add* scrutiny, never remove it. Under-declaring is not an argument
+anyone has to win — it is simply ignored.
+
+Run the two example tasks through the derivation and you can see it:
+
+```
+TASK-101: declared=high     floor=critical  effective=critical
+          flow=ARCH>ARCH_REVIEW>IMPLEMENT>CODE_REVIEW>SECURITY_REVIEW>UNIT>COMPONENT>TEST_REVIEW>JOURNEY_TEST
+
+TASK-102: declared=low      floor=low       effective=low
+          flow=IMPLEMENT>CODE_REVIEW>UNIT
+```
+
+TASK-101 asked for `high`. It was overruled, because it declares `JOURNEY=CJ-BOOK-001` and
+that journey is `CRIT=critical`. TASK-102 only says `SERVES=CJ-BOOK-001`, so it keeps the
+three-role flow and finishes quickly.
+
+**Why the floor has to exist:** skipping a reviewer satisfies the separation-of-duties
+check *vacuously* — with no second record there are no two actors to compare. So
+under-declaring risk does not defeat separation of duties; it moves the hole somewhere
+that check structurally cannot look. The floor closes it, and `check_risk_flow` fails the
+build if a done task is missing a role its risk level required.
+
+Governance files are frozen while a task runs. No role can edit `core/`, `project.aol`,
+`journeys.aol`, `invariants.aol`, or its own task file — because a task that could edit
+its own `RISK=` could lower its own floor.
+
+| Level | Flow | Done requires |
+| --- | --- | --- |
+| `low` | IMPLEMENT → CODE_REVIEW → UNIT | test + review |
+| `high` | + ARCH, ARCH_REVIEW, TEST_REVIEW | + architecture approval |
+| `critical` | + SECURITY_REVIEW, COMPONENT, JOURNEY_TEST | + deploy + post-deploy evidence |
+
+---
+
+## What a run produces
+
+```
+INCREMENT=DELIVERED
+```
+
+That is not a claim, it is a check: production files exist, a **passing** test record
+exists, and an independent review passed with an actor different from the author.
+A pile of design documents reports `NOT_DELIVERED`.
+
+| Output | Location | What it is for |
+| --- | --- | --- |
+| Working code | your `PROD_GLOB` | the increment |
+| Tests | your `TEST_GLOB` | written by a role banned from touching production code |
+| `evidence/ledger.ndjson` | append-only | every command, exit code and file hash |
+| `evidence/artifacts/*.log` | hashed | the actual output, re-verifiable later |
+| `memory/handoffs.ndjson` | append-only | who did what, what was refused, what is next |
+| `state.aol` | current | where the project stands |
+
+### Reading the evidence
+
+```bash
+python3 compiler/evidence.py verify --root . --project bookings
+python3 compiler/enforce.py --root . --project bookings --strict
+```
+
+`verify` re-hashes every file the ledger cites and reports drift — so evidence edited after
+the fact is detectable. `enforce --strict` additionally refuses review evidence that the
+agent wrote about itself rather than the harness recording it.
+
+A real ledger line looks like this:
+
+```json
+{"id":"EV-0004","role":"CODE_REVIEW","kind":"REVIEW","verdict":"FAIL",
+ "actor":{"id":"code_review-run1","trust":"RUNTIME"},
+ "claim":"unhandled error path in claim_slot; missing audit event",
+ "subject":[{"path":"src/booking.py","sha256":"9f2a..."}]}
+```
+
+`trust:RUNTIME` means the harness stamped it. `trust:DECLARED` means the agent said so, and
+`--strict` will not accept that from a reviewer.
+
+---
+
+## Adopting on an existing codebase
+
+```bash
+python3 compiler/retrofit_scan.py --repo . --output agent-os/projects/mine/retrofit-report.json
+```
+
+Then, in order:
+
+1. Copy `templates/project/` to `projects/<your-id>/`.
+2. Set `PROD_GLOB` / `TEST_GLOB` to match your layout. Everything else depends on this.
+3. Write `invariants.aol` honestly. Three real invariants beat twelve aspirational ones.
+4. Register your critical journeys and mark the genuinely critical ones `CRIT=critical`.
+5. Add `RISKPATH:` for the files where mistakes are expensive.
+6. Start with one **low** risk task and expand only once the evidence looks right.
+
+Step 3 is the work. The rest is filling in forms.
+
+## Continuous integration
+
+The compiler needs no model and no network, so it runs anywhere:
+
+```yaml
+- run: python3 agent-os/compiler/validate.py --root agent-os --strict
+```
+
+That single line checks separation of duties, evidence completeness for each task's risk
+level, artifact tampering, test weakening, and risk under-declaration. It fails the build
+with the AOL rule that was broken.
+
+## Language support
+
+Governance is by path glob, so the codebase can be in any language. Test runners currently
+recognised: `pytest`, `unittest`, `npm test`, `yarn test`, `jest`, `playwright`,
+`go test`, `cargo test`. Assertion counting covers Python, JavaScript/TypeScript, Java,
+Swift and C++. Adding a runner is one line in `runtime/hooks.py`.
+
+The runtime itself is Python because the Claude Agent SDK is. It governs code in any
+language.
+
+---
+
+## Known limits
+
+Stated plainly, because a framework about honest evidence should be honest about itself.
+
+- **No deployment yet.** `DEPLOY` and `POSTDEPLOY` are defined roles with no
+  implementation, and there is no git integration — a run leaves changes in your working
+  tree for you to commit. Because `GATE:critical` requires deploy and post-deploy
+  evidence, **a critical task cannot currently be marked done.**
+- **Shell is the weak edge.** Path policy on `Bash` commands is deliberately over-broad
+  rather than exact, because shell cannot be parsed reliably. A false denial routes work
+  to the right role; the compiler layer is the backstop for what slips through.
+- **Registry completeness is judgment.** If a journey that should be `CRIT=critical` was
+  never marked, the derived floor will be too low and no deterministic check can know
+  better. `RISKPATH:default` and frozen governance files bound this; they do not close it.
+- **Writing AOL by hand is a real barrier.** It is compact because it has to survive in a
+  model's context window, not because it is pleasant to author.
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `core/` | Generic governance: system, process, roles, quality, precedence, evidence |
+| `compiler/` | Deterministic checks — `validate`, `enforce`, `evidence`, `selftest` |
+| `runtime/` | Agent SDK runtime — roles, agents, hooks, orchestrator |
+| `examples/bookings/` | The worked example in this README |
+| `examples/sample-project/` | A payments variant |
+| `templates/project/` | Copy this to start |
+| `evals/` | Measures whether AOL's compression costs compliance |
+| `docs/` | `AOL_REFERENCE.md`, new-project and retrofit guides |
+
+## Further reading
+
+- [`docs/AOL_REFERENCE.md`](docs/AOL_REFERENCE.md) — the language, and which lines are machine-read
+- [`runtime/README.md`](runtime/README.md) — how each ban becomes a mechanism
+- [`HUMAN_SUMMARY.md`](HUMAN_SUMMARY.md) — the short version for people who will not read this

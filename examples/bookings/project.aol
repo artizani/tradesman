@@ -1,0 +1,12 @@
+AOL/1
+PROJECT=bookings
+NAME=ClinicBookings
+MISSION=LetPatientsBookAndNeverDoubleBookAClinician
+STATUS=active
+VER=1.2.0
+ACTIVE_EPICS=EPIC-004
+PROD_GLOB=examples/bookings/src/*
+TEST_GLOB=examples/bookings/tests/*
+RISKPATH:critical=examples/bookings/src/slots*+examples/bookings/src/booking*
+RISKPATH:high=examples/bookings/src/auth*+examples/bookings/src/payment*
+RISKPATH:default=low
