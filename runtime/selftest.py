@@ -34,7 +34,9 @@ def make_root(tmp):
     p = root / 'projects' / 'selftest'
     (p / 'project.aol').write_text(
         'AOL/1\nPROJECT=selftest\nNAME=Selftest\nSTATUS=active\n'
-        'PROD_GLOB=projects/selftest/src/*\nTEST_GLOB=projects/selftest/tests/*\n')
+        'PROD_GLOB=projects/selftest/src/*\nTEST_GLOB=projects/selftest/tests/*\n'
+        'RISKPATH:critical=projects/selftest/src/ledger*\n'
+        'RISKPATH:default=low\n')
     for f in ('domain', 'product', 'architecture', 'invariants', 'journeys', 'state'):
         (p / f'{f}.aol').write_text('AOL/1\n')
     (p / 'tasks').mkdir()
@@ -113,6 +115,63 @@ def test_verification():
     return passed, failed
 
 
+async def test_risk(root):
+    """Risk may only add scrutiny; governance inputs are frozen mid-run."""
+    from runtime.hooks import Governor
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / 'compiler'))
+    import aol
+
+    src = str(root / 'projects/selftest/src/payment.py')
+    hot = str(root / 'projects/selftest/src/ledger_post.py')
+    cases = [
+        # (risk, tool, input, label, expected)
+        ('low', 'Write', {'file_path': hot}, 'RISKPATH:critical path at risk=low', 'deny'),
+        ('critical', 'Write', {'file_path': hot}, 'RISKPATH:critical path at risk=critical', 'allow'),
+        ('low', 'Write', {'file_path': src}, 'ordinary prod path at risk=low', 'allow'),
+        ('high', 'Write', {'file_path': str(root / 'core/ROLES.aol')},
+         'GOV_GLOB: edit core/ROLES.aol', 'deny'),
+        ('high', 'Write', {'file_path': str(root / 'projects/selftest/project.aol')},
+         'GOV_GLOB: edit project.aol', 'deny'),
+        ('high', 'Write', {'file_path': str(root / 'projects/selftest/tasks/TASK-001.aol')},
+         'TASK_GLOB: edit own task (its own RISK=)', 'deny'),
+    ]
+    passed = failed = 0
+    for risk, tool, inp, label, exp in cases:
+        gov = Governor(root, 'selftest', 'TASK-001', default_role='IMPLEMENT', risk=risk)
+        r = await gov.pre_tool_use(
+            {'hook_event_name': 'PreToolUse', 'tool_name': tool,
+             'tool_input': inp, 'agent_type': 'implement'}, 'tu', None)
+        got = r.get('hookSpecificOutput', {}).get('permissionDecision', 'allow')
+        ok = got == exp
+        passed, failed = passed + ok, failed + (not ok)
+        print(f'  {"ok  " if ok else "FAIL"} {label:44} {got:5} (expected {exp})')
+
+    # The floor is a pure function of what the task cites.
+    floor_cases = [
+        ({'JOURNEY': 'CJ-1', 'INV': ''}, 'critical', 'delivers a critical journey'),
+        ({'SERVES': 'CJ-1', 'INV': 'INV-1'}, 'high', 'serves it, but cites an invariant'),
+        ({'SERVES': 'CJ-1'}, 'low', 'serves it only'),
+        ({}, 'low', 'cites nothing'),
+    ]
+    (root / 'projects/selftest/journeys.aol').write_text(
+        'AOL/1\nCJ CJ-1: NAME=X CRIT=critical\n')
+    for kv, want, label in floor_cases:
+        got = aol.risk_floor(root, 'selftest', kv)
+        ok = got == want
+        passed, failed = passed + ok, failed + (not ok)
+        print(f'  {"ok  " if ok else "FAIL"} floor: {label:37} {got:5} (expected {want})')
+
+    # A declaration can never lower the effective level.
+    for declared, want, label in (('low', 'critical', 'declared low, floor critical'),
+                                  ('critical', 'critical', 'declared critical, floor critical')):
+        got = aol.highest(root, declared, 'critical')
+        ok = got == want
+        passed, failed = passed + ok, failed + (not ok)
+        print(f'  {"ok  " if ok else "FAIL"} effective: {label:33} {got:8} (expected {want})')
+    return passed, failed
+
+
 async def test_live(root):
     """No governance prompt. Only the hooks. The agent will genuinely try."""
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
@@ -172,6 +231,9 @@ async def main():
         print('\nverification detection (what may mint test evidence)')
         vp, vf = test_verification()
         p, f = p + vp, f + vf
+        print('\nrisk: a declaration may only add scrutiny')
+        rp, rf = await test_risk(root)
+        p, f = p + rp, f + rf
         if live:
             print('\nlive agent')
             lp, lf = await test_live(root)

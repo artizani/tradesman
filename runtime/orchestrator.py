@@ -83,7 +83,7 @@ def latest_review_verdict(root, project, task, role):
 
 
 async def run_role(root, project, task, role, brief, model=None, session='',
-                   attempt=0):
+                   attempt=0, risk=None):
     """One role, one agent, one identity."""
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 
@@ -91,7 +91,7 @@ async def run_role(root, project, task, role, brief, model=None, session='',
     if attempt:
         actor += f'-r{attempt}'   # rework keeps the same author, distinct run
     gov = Governor(root, project, task, default_role=role, session=session,
-                   actor_id=actor)
+                   actor_id=actor, risk=risk)
     policy = gov.policies[role]
 
     options = ClaudeAgentOptions(
@@ -120,12 +120,32 @@ async def run_role(root, project, task, role, brief, model=None, session='',
             'output': '\n'.join(text)}
 
 
+def record_risk(root, project, task, declared, floor, effective, flow, session):
+    """Stamp the risk decision as trust=RUNTIME evidence before any role runs.
+
+    This is what makes the ratchet checkable later: enforce.py can compare the
+    task's current RISK= and a freshly recomputed floor against what was
+    actually run, and catch a registry demoted after the fact.
+    """
+    import subprocess
+    subprocess.run([
+        sys.executable, str(Path(root) / 'compiler' / 'evidence.py'), 'record',
+        '--root', str(root), '--project', project, '--task', task,
+        '--role', 'RISK_ASSESS', '--kind', 'RISK', '--verdict', 'PASS',
+        '--claim', f'risk resolved: declared={declared} floor={floor} effective={effective}',
+        '--actor-id', f'risk-{session or "run"}', '--trust', 'RUNTIME',
+        '--declared', declared, '--floor', floor, '--effective', effective,
+        '--flow', '>'.join(flow or []),
+    ], capture_output=True, text=True, cwd=root)
+
+
 class Run:
     """Accumulates what each role produced, so the next role is not blind."""
 
     def __init__(self, root, project, task, goal):
         self.root, self.project, self.task, self.goal = root, project, task, goal
         self.history = []
+        self.risk = None
 
     def note(self, result):
         self.history.append(result)
@@ -164,13 +184,13 @@ async def gated(run, author, reviewer, model, session, max_rework):
         label = f'{author}' + (f' (rework {attempt})' if attempt else '')
         print(f'--- {label} ---')
         a = await run_role(run.root, run.project, run.task, author,
-                           run.brief_for(author, extra), model, session, attempt)
+                           run.brief_for(author, extra), model, session, attempt, run.risk)
         run.note(a)
         print(f'    wrote={a["wrote"] or "-"} denials={len(a["denials"])}')
 
         print(f'--- {reviewer} ---')
         r = await run_role(run.root, run.project, run.task, reviewer,
-                           run.brief_for(reviewer, sev), model, session, attempt)
+                           run.brief_for(reviewer, sev), model, session, attempt, run.risk)
         run.note(r)
         verdict = latest_review_verdict(run.root, run.project, run.task, reviewer)
         print(f'    wrote={r["wrote"] or "-"} verdict={verdict}')
@@ -197,8 +217,9 @@ async def main():
     p.add_argument('--model')
     p.add_argument('--session', default='run')
     p.add_argument('--max-rework', type=int, default=None)
-    p.add_argument('--skip-arch', action='store_true',
-                   help='design already approved; go straight to implementation')
+    # --skip-arch is gone: it was an unbounded way to drop the design gate.
+    # FLOW:low subsumes it, and the floor decides whether low is available.
+    p.add_argument('--risk', help='RAISE the risk level; it can never lower it')
     a = p.parse_args()
 
     root = Path(a.root)
@@ -207,7 +228,44 @@ async def main():
     goal = a.goal or (task_file.read_text() if task_file.exists() else '')
     run = Run(root, a.project, a.task, goal)
 
-    print(f'INCREMENT={a.project}/{a.task}  rework_max={max_rework}\n')
+    task_kv = aol.parse_kv(task_file)
+    declared = task_kv.get('RISK', 'low')
+    floor = aol.risk_floor(root, a.project, task_kv)
+    # RISK_EFFECTIVE=HIGHEST_OF:DECLARED+FLOOR+PATH. --risk joins the max, so it
+    # can only add scrutiny -- an operator flag that could lower the level would
+    # be the same hole as a self-declared RISK=low.
+    risk = aol.highest(root, declared, floor, a.risk or 'low')
+    steps = aol.flow_for(root, risk)
+    pairs = dict(gate_pairs(root))
+
+    print(f'INCREMENT={a.project}/{a.task}')
+    print(f'  declared={declared}  floor={floor}  effective={risk}')
+    if aol.rank(root, declared) < aol.rank(root, floor):
+        print(f'  NOTE: declared risk is below the floor; running at {risk}. '
+              f'Under-declaration is not arbitrated -- it is ignored.')
+    print(f'  flow={">".join(steps) if steps else "default"}  rework_max={max_rework}\n')
+
+    run.risk = risk
+    record_risk(root, a.project, a.task, declared, floor, risk, steps, a.session)
+
+    if steps:
+        # Walk the declared flow, pairing each author with its reviewer.
+        reviewers = set(pairs.values())
+        for role in steps:
+            if role in reviewers:
+                continue          # runs as the second half of its gate
+            if role in pairs:
+                if not await gated(run, role, pairs[role], a.model, a.session,
+                                   max_rework if pairs[role] in steps else 0):
+                    return finish(run, converged=False)
+            else:
+                print(f'--- {role} ---')
+                r = await run_role(root, a.project, a.task, role,
+                                   run.brief_for(role), a.model, a.session,
+                                   risk=run.risk)
+                run.note(r)
+                print(f'    wrote={r["wrote"] or "-"} evidence={len(r["evidence"])}')
+        return finish(run, converged=True)
 
     if not a.skip_arch:
         if not await gated(run, 'ARCH', 'ARCH_REVIEW', a.model, a.session, max_rework):
@@ -222,7 +280,7 @@ async def main():
                                      'The implementation exists. Write tests that assert the\n'
                                      'task invariants, RUN them, and record the result -- including\n'
                                      'a FAIL verdict if they fail. Do not edit production code.'),
-                       a.model, a.session)
+                       a.model, a.session, risk=run.risk)
     run.note(u)
     print(f'    wrote={u["wrote"] or "-"} evidence={len(u["evidence"])}')
     return finish(run, converged=True)
@@ -233,7 +291,18 @@ def finish(run, converged):
     records, _ = aol.read_ledger(aol.ledger_path(run.root, run.project))
     mine = [r for r in records if r.get('task') == run.task]
     tests = [r for r in mine if r.get('kind') == 'TEST']
-    reviews = [r for r in mine if r.get('kind') in ('REVIEW', 'ARCH_APPROVAL')]
+
+    # Filtering reviews by KIND alone was a self-approval hole: an IMPLEMENT
+    # agent that recorded its own REVIEW/PASS satisfied "independent review
+    # passed", and SOD= did not catch it because SOD compares actors across
+    # roles and only one role was involved. A review counts only if a review
+    # role authored it, with an actor distinct from everyone who wrote code.
+    authors = {r.get('actor', {}).get('id') for r in mine
+               if r.get('role') in ('IMPLEMENT', 'ARCH')}
+    reviews = [r for r in mine
+               if r.get('kind') in ('REVIEW', 'ARCH_APPROVAL')
+               and r.get('role') in aol.REVIEW_ROLES
+               and r.get('actor', {}).get('id') not in authors]
 
     kv = aol.parse_kv(Path(run.root) / 'projects' / run.project / 'project.aol')
     prod = [g for g in kv.get('PROD_GLOB', '').split('+') if g]
@@ -243,6 +312,7 @@ def finish(run, converged):
         ('implementation exists', bool(code)),
         ('passing test evidence', any(r.get('verdict') == 'PASS' for r in tests)),
         ('independent review passed', any(r.get('verdict') == 'PASS' for r in reviews)),
+        ('review was independent', bool(reviews) or not mine),
         ('gates converged', converged),
     ]
     print('\nINCREMENT CHECK')

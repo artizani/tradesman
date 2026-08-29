@@ -26,6 +26,8 @@ WRITE_CLASS = {
     'UNIT_TESTS': 'TEST',
     'COMPONENT_TESTS': 'TEST',
     'E2E_TESTS': 'TEST',
+    'TASK': 'TASK',
+    'EPIC': 'TASK',
 }
 
 
@@ -64,8 +66,22 @@ class RolePolicy:
         """
         return WRITE_TOOLS
 
-    def may_write(self, path, prod_globs, test_globs):
-        """Return None if allowed, else the AOL rule being violated."""
+    def may_write(self, path, prod_globs, test_globs, gov_globs=(), task_globs=()):
+        """Return None if allowed, else the AOL rule being violated.
+
+        Governance files are frozen for every role: no role carries a WRITE
+        token for GOV_GLOB, which is the point. A task that could edit
+        journeys.aol or its own project.aol could lower its own risk floor,
+        and the floor is the thing standing between an under-declared task and
+        a skipped reviewer.
+        """
+        if _covers(path, gov_globs):
+            return (f'ROLE {self.name}: core/ROLES.aol GOV_GLOB -- {path} is a '
+                    f'governance input and is frozen while a task runs. Lowering '
+                    f'your own risk floor is not a move available to any role.')
+        if _covers(path, task_globs) and 'TASK' not in self.classes:
+            return (f'ROLE {self.name}: WRITE={"+".join(self.writes)} -- {path} is a '
+                    f'task or epic file. A task may not edit its own RISK=.')
         is_prod = _covers(path, prod_globs)
         is_test = _covers(path, test_globs)
 
@@ -92,6 +108,13 @@ def project_globs(root, project):
     kv = aol.parse_kv(aol.project_dir(root, project) / 'project.aol')
     return ([g for g in kv.get('PROD_GLOB', '').split('+') if g],
             [g for g in kv.get('TEST_GLOB', '').split('+') if g])
+
+
+def governance_globs(root):
+    """GOV_GLOB / TASK_GLOB from core/ROLES.aol -- frozen inputs."""
+    kv = aol.parse_kv(Path(root) / 'core' / 'ROLES.aol')
+    return ([g for g in kv.get('GOV_GLOB', '').split('+') if g],
+            [g for g in kv.get('TASK_GLOB', '').split('+') if g])
 
 
 if __name__ == '__main__':

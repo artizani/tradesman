@@ -11,7 +11,7 @@ import hashlib
 import json
 import re
 
-KINDS = ['TEST', 'REVIEW', 'ARCH_APPROVAL', 'DEPLOY', 'POSTDEPLOY', 'DEFECT']
+KINDS = ['TEST', 'REVIEW', 'ARCH_APPROVAL', 'DEPLOY', 'POSTDEPLOY', 'DEFECT', 'RISK']
 VERDICTS = ['PASS', 'FAIL', 'BLOCKED']
 TRUSTS = ['RUNTIME', 'DECLARED']
 
@@ -149,3 +149,112 @@ def match_globs(path, globs):
     from fnmatch import fnmatch
     p = str(path)
     return any(fnmatch(p, g) for g in globs if g)
+
+
+# ---------------------------------------------------------------- risk
+# A declared risk may only ADD scrutiny, never remove it. The floor is derived
+# from what the task cites, which the task author also controls -- so the floor
+# is not tamper-proof on its own; it is one of three signals (declared, floor,
+# path) whose HIGHEST wins. See core/PROCESS.aol RISK_EFFECTIVE.
+#
+# Why this matters: skipping a reviewer satisfies SOD= vacuously -- with no
+# second record there are no actors to compare -- so under-declaring risk does
+# not defeat SOD, it moves the hole somewhere SOD structurally cannot look.
+
+
+def risk_order(root):
+    """RISK_ORDER=critical>high>low -> {'critical': 2, 'high': 1, 'low': 0}"""
+    raw = parse_kv(Path(root) / 'core' / 'PROCESS.aol').get('RISK_ORDER', 'critical>high>low')
+    levels = [x.strip().lower() for x in raw.split('>') if x.strip()]
+    levels.reverse()
+    return {name: i for i, name in enumerate(levels)}
+
+
+def rank(root, level):
+    return risk_order(root).get((level or '').lower(), 0)
+
+
+def highest(root, *levels):
+    order = risk_order(root)
+    best, best_rank = 'low', -1
+    for lv in levels:
+        r = order.get((lv or '').lower(), -1)
+        if r > best_rank:
+            best, best_rank = (lv or 'low').lower(), r
+    return best
+
+
+def risk_floor(root, project, task_kv):
+    """The lowest risk a task may legitimately run at.
+
+    RISK_FLOOR=CRIT_JOURNEY>critical|INV_REF>high|ELSE>low -- a task citing a
+    critical journey floors at critical; one citing any invariant floors at
+    high. Pure function of files, computable before any code exists, which is
+    what lets the flow be chosen up front.
+    """
+    d = project_dir(root, project)
+    journeys = {}
+    for line in read_lines(d / 'journeys.aol'):
+        if ':' in line and ('CJ ' in line or 'UJ ' in line):
+            head, _, tail = line.partition(':')
+            jid = head.split()[-1].strip()
+            crit = 'critical' if 'CRIT=critical' in tail else ''
+            journeys[jid] = crit
+
+    # JOURNEY= is what the task DELIVERS and inherits criticality from.
+    # SERVES= is contribution only -- traceability without the floor.
+    delivers = [j.strip() for j in task_kv.get('JOURNEY', '').split('+') if j.strip()]
+    if any(journeys.get(j) == 'critical' for j in delivers):
+        return 'critical'
+    if [i for i in task_kv.get('INV', '').split('+') if i.strip()]:
+        return 'high'
+    return 'low'
+
+
+def riskpaths(root, project):
+    """RISKPATH:<level>=glob+glob -> [(level, [globs]), ...], highest first."""
+    kv = parse_kv(project_dir(root, project) / 'project.aol')
+    out = []
+    for key, val in kv.items():
+        if key.startswith('RISKPATH:'):
+            level = key.split(':', 1)[1].strip().lower()
+            out.append((level, [g for g in val.split('+') if g]))
+    return sorted(out, key=lambda x: rank(root, x[0]), reverse=True)
+
+
+def path_risk(root, project, path):
+    """The risk level a path carries, or None if only the default applies."""
+    for level, globs in riskpaths(root, project):
+        if level == 'default':
+            continue
+        if match_globs(path, globs):
+            return level
+    return None
+
+
+def effective_risk(root, project, task_kv, declared=None):
+    """RISK_EFFECTIVE=HIGHEST_OF:DECLARED+FLOOR+PATH (path added at write time)."""
+    return highest(root, declared or task_kv.get('RISK', ''),
+                   risk_floor(root, project, task_kv))
+
+
+def flow_for(root, level):
+    """FLOW:<risk>= -> [role, ...]; None when the level declares no flow."""
+    raw = parse_kv(Path(root) / 'core' / 'PROCESS.aol').get(f'FLOW:{(level or "").lower()}')
+    if not raw:
+        return None
+    steps = []
+    for step in raw.split('>'):
+        for part in step.split('+'):
+            if part.strip():
+                steps.append(part.strip())
+    return steps
+
+
+def gate_for(root, level):
+    """GATE:<risk>= -> required evidence kinds, falling back to GATE=."""
+    kv = parse_kv(Path(root) / 'core' / 'ROLES.aol')
+    raw = kv.get(f'GATE:{(level or "").lower()}') or kv.get('GATE', '')
+    if ':' not in raw:
+        return []
+    return [k for k in raw.partition(':')[2].strip().split('+') if k]

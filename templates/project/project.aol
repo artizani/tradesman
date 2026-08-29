@@ -7,3 +7,4 @@ VER=0.1.0
 ACTIVE_EPICS=
 PROD_GLOB=src/*+lib/*+app/*
 TEST_GLOB=tests/*+*_test.*+test_*.*+*.spec.*
+RISKPATH:default=low

@@ -7,3 +7,5 @@ VER=0.1.0
 ACTIVE_EPICS=EPIC-001
 PROD_GLOB=projects/agentos-evals/src/*
 TEST_GLOB=projects/agentos-evals/tests/*
+RISKPATH:high=projects/agentos-evals/src/grade*
+RISKPATH:default=low

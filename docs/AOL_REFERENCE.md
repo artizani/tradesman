@@ -17,6 +17,22 @@ Governance lives here, not in Python: amending a rule means editing AOL.
 | `PROD_GLOB=` / `TEST_GLOB=` | `<project>/project.aol` | `runtime/roles.py` | Which paths are production vs test |
 | `REQUIRE:<KIND>=A+B` | `core/EVIDENCE.aol` | `compiler/evidence.py` | Fields a record of that kind must cite |
 | `FLOW=A>B>C` | `core/PROCESS.aol` | `runtime/orchestrator.py` | Role order for a task |
+| `FLOW:<risk>=` | `core/PROCESS.aol` | `aol.flow_for` | Role order for that risk level |
+| `GATE:<risk>=` | `core/ROLES.aol` | `aol.gate_for` | Evidence a done task needs at that risk |
+| `RISK_FLOOR=` | `core/PROCESS.aol` | `aol.risk_floor` | Lowest risk a task may run at |
+| `RISKPATH:<level>=` | `<project>/project.aol` | `aol.path_risk` | Risk a path carries |
+| `GOV_GLOB=` / `TASK_GLOB=` | `core/ROLES.aol` | `runtime/roles.py` | Files frozen during a run |
+
+`RISK_EFFECTIVE=HIGHEST_OF:DECLARED+FLOOR+PATH` is the load-bearing line: a
+declared risk may only **add** scrutiny, never remove it. Under-declaration is
+not arbitrated by anyone -- it is ignored, the run proceeds at the floor, and a
+defect records the gap. That is what makes the autonomous case work: no human
+decides, because nobody's opinion can lower the number.
+
+Skipping a reviewer satisfies `SOD=` *vacuously* -- with no second record there
+are no actors to compare -- so under-declaring risk does not defeat separation
+of duties, it moves the hole somewhere `SOD=` structurally cannot look. The
+floor exists to close that.
 
 `!=` is the separation-of-duties operator: `IMPLEMENT!=CODE_REVIEW` reads
 "the implementer and the code reviewer must not be the same actor", and is

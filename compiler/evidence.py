@@ -59,6 +59,18 @@ def build_record(args, roles, records):
         if not args.artifact:
             errors.append(f'kind={args.kind} requires at least one --artifact')
 
+    # A model-declared risk assessment is worthless by construction: the whole
+    # point is that nobody's opinion may lower the number. Rejected at the
+    # validator, not only under --strict.
+    if args.kind == 'RISK':
+        if args.trust != 'RUNTIME':
+            errors.append('kind=RISK requires trust=RUNTIME '
+                          '(REJECT=RISK_NOT_RUNTIME_STAMPED) -- a self-declared '
+                          'risk assessment is not evidence')
+        for field in ('declared', 'floor', 'effective', 'flow'):
+            if not getattr(args, field, None):
+                errors.append(f'kind=RISK requires --{field} (REQUIRE:RISK)')
+
     if args.kind in aol.SUBJECT_KINDS and not args.subject:
         errors.append(f'kind={args.kind} requires at least one --subject (what was reviewed)')
 
@@ -111,6 +123,9 @@ def build_record(args, roles, records):
         record['journey'] = args.journey
     if args.invariant:
         record['invariants'] = args.invariant
+    for field in ('declared', 'floor', 'effective', 'flow'):
+        if getattr(args, field, None):
+            record[field] = getattr(args, field)
     return record, []
 
 
@@ -198,6 +213,10 @@ def main():
     r.add_argument('--actor-model', default='')
     r.add_argument('--actor-session', default='')
     r.add_argument('--trust', default='DECLARED', help='RUNTIME (harness-stamped) or DECLARED')
+    r.add_argument('--declared', help='kind=RISK: the risk the task declared')
+    r.add_argument('--floor', help='kind=RISK: the derived floor')
+    r.add_argument('--effective', help='kind=RISK: the level actually run')
+    r.add_argument('--flow', help='kind=RISK: the role sequence executed')
     r.set_defaults(fn=cmd_record)
 
     v = sub.add_parser('verify', help='re-hash cited paths and report drift')

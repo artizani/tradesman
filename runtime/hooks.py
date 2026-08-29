@@ -63,7 +63,7 @@ class Governor:
     """Holds the governed context and produces the SDK hook callbacks."""
 
     def __init__(self, root, project, task, default_role=None, session='',
-                 actor_id=None):
+                 actor_id=None, risk=None):
         # Resolved: an unresolved root breaks relative_to() wherever the path
         # crosses a symlink (macOS /var -> /private/var), silently sending every
         # path down the "not source" branch and disabling the policy.
@@ -75,6 +75,9 @@ class Governor:
         self.actor_id = actor_id
         self.policies = roles_mod.load(self.root)
         self.prod_globs, self.test_globs = roles_mod.project_globs(self.root, project)
+        self.gov_globs, self.task_globs = roles_mod.governance_globs(self.root)
+        self.risk = risk
+        self.breaches = []
         self.denials = []
         self.recorded = []
         self.writes = []
@@ -154,10 +157,30 @@ class Governor:
         tool_input = input_data.get('tool_input', {}) or {}
 
         for path in self._paths(tool_name, tool_input):
-            violation = policy.may_write(self._rel(path), self.prod_globs, self.test_globs)
+            rel = self._rel(path)
+
+            # RISKPATH contradicts the declaration with what the change actually
+            # touches. Risk lives in the code, not in the label on the task.
+            if self.risk:
+                lvl = aol.path_risk(self.root, self.project, rel)
+                if lvl and aol.rank(self.root, lvl) > aol.rank(self.root, self.risk):
+                    rule = (f'RISK_BREACH: {rel} is RISKPATH:{lvl} but this run is '
+                            f'risk={self.risk}. core/PROCESS.aol '
+                            f'RISK_EFFECTIVE=HIGHEST_OF:DECLARED+FLOOR+PATH -- the '
+                            f'path outranks the declaration, so the flow was too thin.')
+                    self.breaches.append({'path': rel, 'level': lvl, 'rule': rule})
+                    self.denials.append({'role': role, 'tool': tool_name,
+                                         'path': rel, 'rule': rule})
+                    return {'hookSpecificOutput': {
+                        'hookEventName': input_data.get('hook_event_name', 'PreToolUse'),
+                        'permissionDecision': 'deny',
+                        'permissionDecisionReason': rule}}
+
+            violation = policy.may_write(rel, self.prod_globs, self.test_globs,
+                                         self.gov_globs, self.task_globs)
             if violation:
                 self.denials.append({'role': role, 'tool': tool_name,
-                                     'path': self._rel(path), 'rule': violation})
+                                     'path': rel, 'rule': violation})
                 # Quoting the AOL rule back is deliberate: the denial teaches it.
                 return {
                     'hookSpecificOutput': {

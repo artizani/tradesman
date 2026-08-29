@@ -61,7 +61,12 @@ def check_gate(root, records, required_kinds):
                 continue
             task = kv.get('TASK', task_file.stem)
             got = present.get(task, {})
-            for kind in required_kinds:
+            # GATE:<risk> or the unconditional GATE= fallback. Without this a
+            # low-risk task could never be done: the base GATE demands
+            # ARCH_APPROVAL+DEPLOY+POSTDEPLOY of everything.
+            project = task_file.parent.parent.name
+            risk = aol.effective_risk(root, project, kv)
+            for kind in (aol.gate_for(root, risk) or required_kinds):
                 rs = got.get(kind, [])
                 if not rs:
                     violations.append(
@@ -136,6 +141,106 @@ def check_test_weakening(records):
     return violations
 
 
+def _task_files(root):
+    for parent in ('projects', 'examples'):
+        base = Path(root) / parent
+        if not base.exists():
+            continue
+        for f in sorted(base.glob('*/tasks/TASK-*.aol')):
+            if not f.stem.endswith('template'):
+                yield f.parent.parent.name, f
+
+
+def check_risk_floor(root):
+    """A task may not declare less risk than what it cites implies.
+
+    Static and pre-code: catches under-declaration before anything runs. The
+    run itself ignores the declaration and executes at the floor, so this is
+    the record that the two disagreed.
+    """
+    violations = []
+    for project, f in _task_files(root):
+        kv = aol.parse_kv(f)
+        declared = kv.get('RISK', 'low')
+        floor = aol.risk_floor(root, project, kv)
+        if aol.rank(root, declared) < aol.rank(root, floor):
+            violations.append(
+                f'{kv.get("TASK", f.stem)}: RISK={declared} but the floor is {floor} '
+                f'(core/PROCESS.aol RISK_FLOOR). A declaration may only add '
+                f'scrutiny, never remove it.')
+    return violations
+
+
+def check_risk_flow(root, records):
+    """A done task's ledger must show every role its risk level requires.
+
+    Skipping a reviewer satisfies SOD= vacuously -- no second record means no
+    actors to compare -- so an absent role is invisible to SOD and has to be
+    caught as an absence here.
+    """
+    violations = []
+    by_task = {}
+    for r in records:
+        by_task.setdefault(r.get('task'), set()).add(r.get('role'))
+    for project, f in _task_files(root):
+        kv = aol.parse_kv(f)
+        if kv.get('STATUS', '').lower() != 'done':
+            continue
+        task = kv.get('TASK', f.stem)
+        risk = aol.effective_risk(root, project, kv)
+        for role in (aol.flow_for(root, risk) or []):
+            if role not in by_task.get(task, set()):
+                violations.append(
+                    f'{task}: STATUS=done at risk={risk} but no evidence from '
+                    f'{role} (core/PROCESS.aol FLOW:{risk})')
+    return violations
+
+
+def check_risk_ratchet(root, records):
+    """Risk may be raised at any time and never lowered after evidence exists."""
+    violations = []
+    risk_records = [r for r in records if r.get('kind') == 'RISK']
+    for r in risk_records:
+        task = r.get('task')
+        project = r.get('project')
+        if (r.get('actor') or {}).get('trust') != 'RUNTIME':
+            violations.append(f'{r.get("id")}: RISK record is not RUNTIME-stamped')
+        f = aol.project_dir(root, project) / 'tasks' / f'{task}.aol'
+        if not f.exists():
+            continue
+        kv = aol.parse_kv(f)
+        eff = r.get('effective', 'low')
+        if aol.rank(root, kv.get('RISK', 'low')) < aol.rank(root, eff):
+            # Only a complaint if the task was demoted below what actually ran.
+            if aol.rank(root, aol.risk_floor(root, project, kv)) < aol.rank(root, eff):
+                violations.append(
+                    f'{task}: ran at risk={eff} but the task and its floor now say '
+                    f'{aol.effective_risk(root, project, kv)} -- a registry was '
+                    f'demoted after evidence existed '
+                    f'(core/PROCESS.aol RISK_RATCHET)')
+    return violations
+
+
+def check_riskpath(root, records):
+    """The diff contradicts the declaration: a cited path outranking the run."""
+    violations = []
+    eff_by_task = {r.get('task'): r.get('effective')
+                   for r in records if r.get('kind') == 'RISK'}
+    for r in records:
+        task, project = r.get('task'), r.get('project')
+        run_at = eff_by_task.get(task)
+        if not run_at or not project:
+            continue
+        for field in ('artifacts', 'subject'):
+            for item in r.get(field, []):
+                lvl = aol.path_risk(root, project, item['path'])
+                if lvl and aol.rank(root, lvl) > aol.rank(root, run_at):
+                    violations.append(
+                        f'{r.get("id")}: {item["path"]} is RISKPATH:{lvl} but the run '
+                        f'was risk={run_at} (core/PROCESS.aol RISK_EFFECTIVE)')
+    return violations
+
+
 def check_trust(records):
     """--strict: review-role evidence must be harness-stamped, not self-declared."""
     violations = []
@@ -188,14 +293,21 @@ def main():
         test_globs = [g for g in pkv.get('TEST_GLOB', '').split('+') if g]
 
         problems += check_sod(records, pairs)
+        problems += check_risk_ratchet(root, records)
+        problems += check_riskpath(root, records)
         problems += check_role_writes(records, roles, prod_globs, test_globs)
         problems += check_tamper(records)
         problems += check_test_weakening(records)
         if args.strict:
             problems += check_trust(records)
 
-    problems += check_gate(root, [r for _, pth in targets
-                                  for r in aol.read_ledger(pth)[0]], gate)
+    all_records = [r for _, pth in targets for r in aol.read_ledger(pth)[0]]
+    if not args.ledger:
+        # Repo-wide static checks. Skipped when checking a single fixture
+        # ledger, which says nothing about the repo's own task files.
+        problems += check_gate(root, all_records, gate)
+        problems += check_risk_floor(root)
+        problems += check_risk_flow(root, all_records)
 
     if problems:
         print('ENFORCEMENT=FAIL')
