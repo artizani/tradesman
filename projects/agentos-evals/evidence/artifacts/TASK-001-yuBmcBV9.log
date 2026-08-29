@@ -1,0 +1,20 @@
+$ cd /Users/user/Digital/Code/tradesman
+.venv/bin/python compiler/evidence.py verify --project agentos-evals 2>&1 | tail -6
+echo "--- delivered test tree ---"
+rm -rf projects/agentos-evals/tests/__pycache__
+ls -la projects/agentos-evals/tests/
+echo "--- final mandated run ---"
+.venv/bin/python -m unittest discover -s projects/agentos-evals/tests -t . 2>&1 | tail -3
+echo "FINAL_EXIT=$?"
+EVIDENCE=PASS (31 references verified)
+--- delivered test tree ---
+total 48
+drwxr-xr-x@  4 user  staff    128 29 Aug 18:16 .
+drwxr-xr-x@ 19 user  staff    608 29 Aug 17:55 ..
+-rw-r--r--@  1 user  staff      0 29 Aug 18:10 __init__.py
+-rw-r--r--@  1 user  staff  24453 29 Aug 18:14 test_grader.py
+--- final mandated run ---
+Ran 37 tests in 0.006s
+
+OK
+FINAL_EXIT=0

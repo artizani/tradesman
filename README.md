@@ -200,16 +200,33 @@ anyone has to win — it is simply ignored.
 Run the two example tasks through the derivation and you can see it:
 
 ```
-TASK-101: declared=high     floor=critical  effective=critical
+TASK-101: declared=critical  floor=critical  effective=critical
           flow=ARCH>ARCH_REVIEW>IMPLEMENT>CODE_REVIEW>SECURITY_REVIEW>UNIT>COMPONENT>TEST_REVIEW>JOURNEY_TEST
 
-TASK-102: declared=low      floor=low       effective=low
+TASK-102: declared=low       floor=low       effective=low
           flow=IMPLEMENT>CODE_REVIEW>UNIT
 ```
 
-TASK-101 asked for `high`. It was overruled, because it declares `JOURNEY=CJ-BOOK-001` and
-that journey is `CRIT=critical`. TASK-102 only says `SERVES=CJ-BOOK-001`, so it keeps the
+Same project, same registry, opposite amounts of process — and nobody chose either.
+TASK-101 declares `JOURNEY=CJ-BOOK-001`, meaning it *delivers* that journey, and the
+journey is `CRIT=critical`. TASK-102 only says `SERVES=CJ-BOOK-001`, so it keeps the
 three-role flow and finishes quickly.
+
+**Try under-declaring it.** Edit `examples/bookings/tasks/TASK-101.aol` to `RISK=low` and
+run:
+
+```bash
+python3 compiler/enforce.py --root .
+```
+
+```
+ENFORCEMENT=FAIL
+ - TASK-101: RISK=low but the floor is critical (core/PROCESS.aol RISK_FLOOR).
+   A declaration may only add scrutiny, never remove it.
+```
+
+The run would have ignored the declaration and executed at `critical` anyway. This is the
+record that the two disagreed.
 
 **Why the floor has to exist:** skipping a reviewer satisfies the separation-of-duties
 check *vacuously* — with no second record there are no two actors to compare. So
