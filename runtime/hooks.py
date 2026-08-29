@@ -38,6 +38,12 @@ _BARE_FILE = re.compile(r'\b[\w\-]+\.[A-Za-z][\w]*\b')
 _SEP = re.compile('|'.join(re.escape(x) for x in ('&&', '||', ';', '|', '\n')))
 _ENV_PREFIX = re.compile(r'^(?:\w+=\S+\s+)+')
 
+# An agent recording its own evidence must not also get to say who it is.
+_RECORDS_EVIDENCE = re.compile(r'evidence\.py\s+record\b')
+_QUOTED = r"""(?:'[^']*'|"[^"]*"|\S+)"""
+_ACTOR_ARG = re.compile(r'--actor-id[= ]+' + _QUOTED)
+_TRUST_ARG = re.compile(r'--trust[= ]+' + _QUOTED)
+
 # A command counts as verification only when a shell segment *runs* one of
 # these. Prefixes must be real paths (`.venv/bin/pytest`), never arbitrary
 # non-space runs -- `\S*pytest` happily matched inside `print(pytest.__version__)`.
@@ -137,6 +143,24 @@ class Governor:
                 candidates.add(f'{d.rstrip("/")}/{f}')
         return sorted(candidates)
 
+    def _stamp_evidence(self, role, command):
+        """Force identity onto an agent's own evidence call. None if not one.
+
+        SOD= compares actor ids, so forcing the actor is what actually buys
+        independence. trust=RUNTIME here means "the harness set this record's
+        identity", not "the harness verified the claim" -- narrower than it
+        sounds, and the narrower reading is the true one.
+        """
+        if not _RECORDS_EVIDENCE.search(command or ''):
+            return None
+        actor = self.actor_id or (role or 'runtime').lower()
+        new = command
+        new = (_ACTOR_ARG.sub(f'--actor-id {actor}', new)
+               if _ACTOR_ARG.search(new) else f'{new} --actor-id {actor}')
+        new = (_TRUST_ARG.sub('--trust RUNTIME', new)
+               if _TRUST_ARG.search(new) else f'{new} --trust RUNTIME')
+        return new if new != command else None
+
     def _rel(self, path):
         p = Path(path)
         try:
@@ -155,6 +179,20 @@ class Governor:
 
         tool_name = input_data.get('tool_name', '')
         tool_input = input_data.get('tool_input', {}) or {}
+
+        # A review verdict is a judgement the harness cannot observe, so review
+        # evidence could only ever be self-declared -- which made --strict
+        # unsatisfiable for exactly the roles it was written to protect. The
+        # harness cannot vouch for the judgement, but it can vouch for the
+        # identity: it rewrites the actor to the one it instantiated, so an
+        # agent records its verdict under a name it does not choose.
+        if tool_name == 'Bash':
+            rewritten = self._stamp_evidence(role, tool_input.get('command', ''))
+            if rewritten is not None:
+                return {'hookSpecificOutput': {
+                    'hookEventName': input_data.get('hook_event_name', 'PreToolUse'),
+                    'permissionDecision': 'allow',
+                    'updatedInput': {**tool_input, 'command': rewritten}}}
 
         for path in self._paths(tool_name, tool_input):
             rel = self._rel(path)

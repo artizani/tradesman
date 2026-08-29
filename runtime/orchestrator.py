@@ -354,9 +354,25 @@ def finish(run, converged):
                and r.get('role') in aol.REVIEW_ROLES
                and r.get('actor', {}).get('id') not in authors]
 
-    kv = aol.parse_kv(Path(run.root) / 'projects' / run.project / 'project.aol')
+    kv = aol.parse_kv(aol.project_dir(run.root, run.project) / 'project.aol')
     prod = [g for g in kv.get('PROD_GLOB', '').split('+') if g]
-    code = [f for h in run.history for f in h['wrote'] if aol.match_globs(f, prod)]
+
+    # Ask git what changed, not the roles what they say they wrote. This check
+    # read h['wrote'] -- self-reported Write/Edit calls -- and reported
+    # NOT_DELIVERED for a run that had produced a working module and 37 passing
+    # tests, because the agents wrote via shell heredocs and nothing was
+    # tracked. The gate that certifies delivery was itself taking a claim on
+    # trust, which is the one thing this framework exists to refuse.
+    try:
+        changed = delivery.touched_files(run.root)
+    except Exception:  # noqa: BLE001 -- outside a git repo, fall back to disk
+        changed = []
+    code = sorted({f for f in changed if aol.match_globs(f, prod)})
+    if not code:
+        for g in prod:
+            code += [str(x.relative_to(run.root))
+                     for x in Path(run.root).glob(g) if x.is_file()]
+    code = sorted(set(code))
 
     checks = [
         ('implementation exists', bool(code)),

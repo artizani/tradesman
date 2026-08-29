@@ -203,6 +203,31 @@ def test_delivery(root):
     return passed, failed
 
 
+def test_identity_stamp(root):
+    """An agent may not choose the name its own evidence is filed under."""
+    from runtime.hooks import Governor
+    import re as _re
+    gov = Governor(root, 'selftest', 'TASK-001', default_role='CODE_REVIEW',
+                   actor_id='code_review-st')
+    base = ('python3 compiler/evidence.py record --project selftest --task TASK-001 '
+            '--role CODE_REVIEW --kind REVIEW --verdict PASS --claim "c" --subject a.py')
+    cases = [
+        ('claims another role\'s identity', base + ' --actor-id implement-st --trust DECLARED'),
+        ('claims no identity', base),
+        ('forges a RUNTIME stamp', base + ' --actor-id implement-st --trust RUNTIME'),
+    ]
+    passed = failed = 0
+    for label, cmd in cases:
+        out = gov._stamp_evidence('CODE_REVIEW', cmd)
+        ok = bool(out) and _re.search(r'--actor-id (\S+)', out).group(1) == 'code_review-st'
+        passed, failed = passed + ok, failed + (not ok)
+        print(f'  {"ok  " if ok else "FAIL"} identity forced when it {label}')
+    untouched = gov._stamp_evidence('CODE_REVIEW', 'pytest -q') is None
+    passed, failed = passed + untouched, failed + (not untouched)
+    print(f'  {"ok  " if untouched else "FAIL"} ordinary commands are left alone')
+    return passed, failed
+
+
 async def test_live(root):
     """No governance prompt. Only the hooks. The agent will genuinely try."""
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
@@ -265,6 +290,9 @@ async def main():
         print('\nrisk: a declaration may only add scrutiny')
         rp, rf = await test_risk(root)
         p, f = p + rp, f + rf
+        print('\nidentity: evidence is filed under a name the harness sets')
+        ip, if_ = test_identity_stamp(root)
+        p, f = p + ip, f + if_
         print('\ndelivery: deploy evidence is executed, not narrated')
         dp, df = test_delivery(root)
         p, f = p + dp, f + df
