@@ -32,6 +32,8 @@ tools you define and has no filesystem surface to police.
 | `BAN=SELF_APPROVAL` | Each role runs as a distinct agent with a distinct actor id; `enforce.py` `SOD=` rejects overlap |
 | `EVIDENCE>ASSERTION` | `PostToolUse` records the command, its real exit code and hashed output — the model never authors it |
 | Independent review | `PreToolUse` rewrites the agent's own `evidence.py record` call, forcing the actor id the harness instantiated |
+| Review of unread code | `PreToolUse` denies a `REVIEW` record whose `--subject` the role never opened |
+| A write the hook missed | After each role, `git diff` is compared with the role's write policy; escapes become defects |
 | `EXIT=...+APPEND_HANDOFF` | `SubagentStop` appends the handoff |
 
 Denials quote the AOL rule back to the agent. A denial is not an obstacle to route around; it means

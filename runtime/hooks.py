@@ -42,6 +42,8 @@ _ENV_PREFIX = re.compile(r'^(?:\w+=\S+\s+)+')
 _RECORDS_EVIDENCE = re.compile(r'evidence\.py\s+record\b')
 _QUOTED = r"""(?:'[^']*'|"[^"]*"|\S+)"""
 _ACTOR_ARG = re.compile(r'--actor-id[= ]+' + _QUOTED)
+_SUBJECT_ARG = re.compile(r'--subject[= ]+(' + _QUOTED + ')')
+_SHELL_READS = re.compile(r'\b(?:cat|head|tail|less|more|sed\s+-n|bat|nl)\b')
 _TRUST_ARG = re.compile(r'--trust[= ]+' + _QUOTED)
 
 # A command counts as verification only when a shell segment *runs* one of
@@ -87,6 +89,7 @@ class Governor:
         self.denials = []
         self.recorded = []
         self.writes = []
+        self.reads = []
 
     # -- role resolution ---------------------------------------------------
     def role_for(self, input_data):
@@ -143,6 +146,44 @@ class Governor:
                 candidates.add(f'{d.rstrip("/")}/{f}')
         return sorted(candidates)
 
+    def _read_paths(self, tool_name, tool_input):
+        """Files this role has actually opened.
+
+        Read/Grep/Glob name a path directly; a shell command that pages a file
+        counts too, since `cat x.py` is how an agent usually reads one.
+        """
+        out = []
+        if tool_name in ('Read', 'NotebookRead'):
+            p = tool_input.get('file_path') or tool_input.get('notebook_path')
+            if p:
+                out.append(self._rel(p))
+        elif tool_name in ('Grep', 'Glob'):
+            p = tool_input.get('path')
+            if p:
+                out.append(self._rel(p))
+        elif tool_name == 'Bash':
+            cmd = tool_input.get('command', '')
+            if _SHELL_READS.search(cmd):
+                out += [self._rel(t) for t in _SHELL_TOKEN.findall(cmd)]
+        return out
+
+    def _reviewed_without_reading(self, command):
+        """Subjects a review cites that this role never opened.
+
+        core/EVIDENCE.aol REQUIRE:REVIEW=SUBJECT exists so a review names what
+        it looked at. Nothing checked that it looked. Diligence as a whole is
+        not observable -- whether a reviewer thought hard is not a thing a
+        harness can see -- but "never opened the file it is signing off" is,
+        and that is the floor worth enforcing.
+        """
+        missing = []
+        for m in _SUBJECT_ARG.finditer(command or ''):
+            raw = m.group(1).strip('\'"')
+            rel = self._rel(raw)
+            if rel not in self.reads and raw not in self.reads:
+                missing.append(rel)
+        return missing
+
     def _stamp_evidence(self, role, command):
         """Force identity onto an agent's own evidence call. None if not one.
 
@@ -187,7 +228,22 @@ class Governor:
         # identity: it rewrites the actor to the one it instantiated, so an
         # agent records its verdict under a name it does not choose.
         if tool_name == 'Bash':
-            rewritten = self._stamp_evidence(role, tool_input.get('command', ''))
+            command = tool_input.get('command', '')
+            if role in aol.REVIEW_ROLES and _RECORDS_EVIDENCE.search(command):
+                unread = self._reviewed_without_reading(command)
+                if unread:
+                    rule = (f'ROLE {role}: this review cites {", ".join(unread)} as its '
+                            f'subject, but this role never opened '
+                            f'{"them" if len(unread) > 1 else "it"}. Read what you are '
+                            f'signing off before recording a verdict on it '
+                            f'(core/EVIDENCE.aol REQUIRE:REVIEW=SUBJECT).')
+                    self.denials.append({'role': role, 'tool': tool_name,
+                                         'path': ','.join(unread), 'rule': rule})
+                    return {'hookSpecificOutput': {
+                        'hookEventName': input_data.get('hook_event_name', 'PreToolUse'),
+                        'permissionDecision': 'deny',
+                        'permissionDecisionReason': rule}}
+            rewritten = self._stamp_evidence(role, command)
             if rewritten is not None:
                 return {'hookSpecificOutput': {
                     'hookEventName': input_data.get('hook_event_name', 'PreToolUse'),
@@ -249,6 +305,10 @@ class Governor:
                 if rel not in self.writes:
                     self.writes.append(rel)
             return {}
+
+        for rel in self._read_paths(tool_name, tool_input):
+            if rel not in self.reads:
+                self.reads.append(rel)
 
         if tool_name != 'Bash':
             return {}

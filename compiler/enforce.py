@@ -256,6 +256,50 @@ def check_riskpath(root, records):
     return violations
 
 
+def registry_gaps(root):
+    """Surface omissions in the registries the risk floor depends on.
+
+    These are notes, not violations. Whether a journey deserves CRIT=critical
+    is judgement, and no check can know that a journey was left unmarked. But
+    an unmarked registry is where the floor silently reads low, so the gaps
+    are worth putting in front of a person even though nothing can decide them.
+    """
+    notes = []
+    for parent in ('projects', 'examples'):
+        base = Path(root) / parent
+        if not base.exists():
+            continue
+        for d in sorted(x for x in base.iterdir() if x.is_dir()):
+            project = d.name
+            kv = aol.parse_kv(d / 'project.aol')
+
+            journeys = [l for l in aol.read_lines(d / 'journeys.aol')
+                        if l.startswith('CJ ')]
+            unmarked = [l.split(':')[0].replace('CJ ', '').strip()
+                        for l in journeys if 'CRIT=' not in l]
+            if unmarked:
+                notes.append(f'{project}: critical journeys with no CRIT= level: '
+                             f'{", ".join(unmarked)} -- the risk floor reads these as low')
+
+            prod = [g for g in kv.get('PROD_GLOB', '').split('+') if g]
+            mapped = [g for lvl, gl in aol.riskpaths(root, project)
+                      if lvl != 'default' for g in gl]
+            if prod and not mapped:
+                notes.append(f'{project}: no RISKPATH: globs, so every production path is '
+                             f'RISKPATH:default -- path risk cannot contradict a declaration')
+
+            if not [l for l in aol.read_lines(d / 'invariants.aol')
+                    if l.startswith('INV:')]:
+                notes.append(f'{project}: invariants.aol names no invariants, so no task '
+                             f'can floor above low on INV_REF')
+
+            for key in ('TEST_CMD', 'DEPLOY_CMD', 'POSTDEPLOY_CMD'):
+                if not kv.get(key, '').strip():
+                    notes.append(f'{project}: no {key}, so the matching evidence kind '
+                                 f'cannot be produced')
+    return notes
+
+
 def check_trust(records):
     """--strict: review-role evidence must be harness-stamped, not self-declared."""
     violations = []
@@ -276,6 +320,8 @@ def main():
     p.add_argument('--root', default='.')
     p.add_argument('--project', help='limit to one project')
     p.add_argument('--ledger', help='check one ledger file directly')
+    p.add_argument('--quiet', action='store_true',
+                   help='suppress registry notes')
     p.add_argument('--strict', action='store_true',
                    help='require trust=RUNTIME for review-role evidence')
     args = p.parse_args()
@@ -324,12 +370,18 @@ def main():
         problems += check_risk_floor(root)
         problems += check_risk_flow(root, all_records)
 
+    notes = [] if args.ledger else registry_gaps(root)
+
     if problems:
         print('ENFORCEMENT=FAIL')
         for x in problems:
             print(' - ' + x)
         sys.exit(1)
     print(f'ENFORCEMENT=PASS ({total} records checked)')
+    if notes and not args.quiet:
+        print(f'\n{len(notes)} registry note(s) -- judgement, not violations:')
+        for n in notes:
+            print(' ? ' + n)
 
 
 if __name__ == '__main__':

@@ -107,6 +107,14 @@ async def run_role(root, project, task, role, brief, model=None, session='',
         max_turns=40,
     )
 
+    # Snapshot before, so what this role changed can be compared with what its
+    # role policy allows. The PreToolUse hook is best-effort on shell commands;
+    # git is not, so anything the hook missed is caught here instead of never.
+    try:
+        before = set(delivery.touched_files(root))
+    except Exception:  # noqa: BLE001 -- not a git repo
+        before = None
+
     text = []
     async with ClaudeSDKClient(options=options) as client:
         await client.query(brief)
@@ -140,6 +148,38 @@ def record_risk(root, project, task, declared, floor, effective, flow, session,
         '--flow', '>'.join(flow or []),
     ] + [x for t in (touched or []) for x in ('--touched', t)],
         capture_output=True, text=True, cwd=root)
+
+
+def audit_role_writes(root, project, task, role, actor, before, gov):
+    """Compare what git says a role changed against what its role may write.
+
+    The hook denies at the moment of action, but shell cannot be parsed
+    exactly, so a write can slip through. This is the backstop: it runs after
+    the role, sees the real diff, and records a DEFECT for anything the policy
+    forbade. A ban that is only enforced where parsing succeeds is not enforced.
+    """
+    try:
+        after = set(delivery.touched_files(root))
+    except Exception:  # noqa: BLE001
+        return []
+
+    policy = gov.policies.get(role)
+    if not policy:
+        return []
+
+    escapes = []
+    for path in sorted(after - before):
+        violation = policy.may_write(path, gov.prod_globs, gov.test_globs,
+                                     gov.gov_globs, gov.task_globs)
+        if violation:
+            escapes.append({'path': path, 'rule': violation})
+
+    for e in escapes:
+        gov.record(role=role, kind='DEFECT', verdict='FAIL',
+                   claim=(f'WRITE_ESCAPE: {role} changed {e["path"]}, which its role may '
+                          f'not write. The hook did not catch it; git did. {e["rule"]}'),
+                   actor=actor, trust='RUNTIME')
+    return escapes
 
 
 class Run:
@@ -194,6 +234,8 @@ async def gated(run, author, reviewer, model, session, max_rework):
                            run.brief_for(author, extra), model, session, attempt, run.risk)
         run.note(a)
         print(f'    wrote={a["wrote"] or "-"} denials={len(a["denials"])}')
+        for e in a.get('escapes', []):
+            print(f'    WRITE ESCAPE: {e["path"]} (recorded as a defect)')
 
         print(f'--- {reviewer} ---')
         r = await run_role(run.root, run.project, run.task, reviewer,

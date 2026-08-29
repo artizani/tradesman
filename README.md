@@ -340,11 +340,17 @@ Stated plainly, because a framework about honest evidence should be honest about
   A project with no `DEPLOY_CMD` cannot produce deploy evidence, and is told so rather
   than having the gate silently skipped.
 - **Shell is the weak edge.** Path policy on `Bash` commands is deliberately over-broad
-  rather than exact, because shell cannot be parsed reliably. A false denial routes work
-  to the right role; the compiler layer is the backstop for what slips through.
+  rather than exact, because shell cannot be parsed reliably. Anything that slips past the
+  hook is caught after the role by comparing `git diff` against the role's write policy and
+  recorded as a defect — so a missed write is late, not invisible.
+- **Diligence is not observable.** The harness forces *who* filed a review and refuses a
+  review of a file the reviewer never opened. It cannot tell whether the reviewer read it
+  carefully. Independence is mechanical; attention is not.
 - **Registry completeness is judgment.** If a journey that should be `CRIT=critical` was
   never marked, the derived floor will be too low and no deterministic check can know
-  better. `RISKPATH:default` and frozen governance files bound this; they do not close it.
+  better. `enforce.py` prints registry notes for the gaps it can see — unmarked journeys,
+  missing `RISKPATH`, absent commands — but they are notes, because nothing can decide
+  them for you.
 - **Writing AOL by hand is a real barrier.** It is compact because it has to survive in a
   model's context window, not because it is pleasant to author.
 

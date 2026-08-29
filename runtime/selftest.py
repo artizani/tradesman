@@ -228,6 +228,74 @@ def test_identity_stamp(root):
     return passed, failed
 
 
+async def test_review_diligence(root):
+    """A reviewer may not sign off on a file it never opened."""
+    from runtime.hooks import Governor
+    subject = 'projects/selftest/src/payment.py'
+    rec = ('python3 compiler/evidence.py record --project selftest --task TASK-001 '
+           '--role CODE_REVIEW --kind REVIEW --verdict PASS --claim "fine" '
+           f'--subject {root}/{subject}')
+
+    async def decide(gov):
+        r = await gov.pre_tool_use(
+            {'hook_event_name': 'PreToolUse', 'tool_name': 'Bash',
+             'tool_input': {'command': rec}, 'agent_type': 'code-review'}, 'x', None)
+        return r.get('hookSpecificOutput', {}).get('permissionDecision', 'allow')
+
+    cold = Governor(root, 'selftest', 'TASK-001', default_role='CODE_REVIEW',
+                    actor_id='cr-cold')
+    read = Governor(root, 'selftest', 'TASK-001', default_role='CODE_REVIEW',
+                    actor_id='cr-read')
+    await read.post_tool_use(
+        {'hook_event_name': 'PostToolUse', 'tool_name': 'Read',
+         'tool_input': {'file_path': f'{root}/{subject}'},
+         'tool_response': {}, 'agent_type': 'code-review'}, 'y', None)
+    catted = Governor(root, 'selftest', 'TASK-001', default_role='CODE_REVIEW',
+                      actor_id='cr-cat')
+    await catted.post_tool_use(
+        {'hook_event_name': 'PostToolUse', 'tool_name': 'Bash',
+         'tool_input': {'command': f'cat {root}/{subject}'},
+         'tool_response': {'stdout': '...'}, 'agent_type': 'code-review'}, 'z', None)
+
+    results = [('review without reading is denied', await decide(cold) == 'deny'),
+               ('review after Read is allowed', await decide(read) == 'allow'),
+               ('review after cat is allowed', await decide(catted) == 'allow')]
+    passed = failed = 0
+    for name, ok in results:
+        passed, failed = passed + ok, failed + (not ok)
+        print(f'  {"ok  " if ok else "FAIL"} {name}')
+    return passed, failed
+
+
+def test_write_escape(root):
+    """A write the hook missed is still caught, by asking git."""
+    import subprocess
+    from runtime.hooks import Governor
+    from runtime.orchestrator import audit_role_writes
+
+    subprocess.run(['git', 'init', '-q'], cwd=root, capture_output=True)
+    subprocess.run(['git', 'add', '-A'], cwd=root, capture_output=True)
+    subprocess.run(['git', '-c', 'user.email=t@t', '-c', 'user.name=t',
+                    'commit', '-qm', 'base'], cwd=root, capture_output=True)
+
+    gov = Governor(root, 'selftest', 'TASK-001', default_role='UNIT', actor_id='unit-esc')
+    # Written directly, as if it had slipped past the PreToolUse hook.
+    (root / 'projects/selftest/src/payment.py').write_text('def settle(x):\n    return 1\n')
+    escapes = audit_role_writes(root, 'selftest', 'TASK-001', 'UNIT', 'unit-esc',
+                                set(), gov)
+    paths = [e['path'] for e in escapes]
+
+    ok_detect = 'projects/selftest/src/payment.py' in paths
+    ok_test = not any('tests/' in p for p in paths)
+    results = [('UNIT writing production code is detected by git', ok_detect),
+               ('a test file it may write is not flagged', ok_test)]
+    passed = failed = 0
+    for name, ok in results:
+        passed, failed = passed + ok, failed + (not ok)
+        print(f'  {"ok  " if ok else "FAIL"} {name}')
+    return passed, failed
+
+
 async def test_live(root):
     """No governance prompt. Only the hooks. The agent will genuinely try."""
     from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
@@ -293,6 +361,12 @@ async def main():
         print('\nidentity: evidence is filed under a name the harness sets')
         ip, if_ = test_identity_stamp(root)
         p, f = p + ip, f + if_
+        print('\ndiligence: a reviewer must open what it signs off')
+        rp2, rf2 = await test_review_diligence(root)
+        p, f = p + rp2, f + rf2
+        print('\nescape: git catches writes the hook missed')
+        ep, ef = test_write_escape(root)
+        p, f = p + ep, f + ef
         print('\ndelivery: deploy evidence is executed, not narrated')
         dp, df = test_delivery(root)
         p, f = p + dp, f + df

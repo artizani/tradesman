@@ -9,3 +9,6 @@ PROD_GLOB=projects/agentos-evals/src/*
 TEST_GLOB=projects/agentos-evals/tests/*
 RISKPATH:high=projects/agentos-evals/src/grade*
 RISKPATH:default=low
+TEST_CMD=python3 -m unittest discover -s projects/agentos-evals/tests -t .
+DEPLOY_CMD=sh projects/agentos-evals/scripts/deploy.sh
+POSTDEPLOY_CMD=sh projects/agentos-evals/scripts/postdeploy.sh
