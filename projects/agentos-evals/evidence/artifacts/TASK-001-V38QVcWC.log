@@ -1,0 +1,7 @@
+$ .venv/bin/python -m unittest discover -s projects/agentos-evals/tests -t . 2>&1 | tail -40; echo "EXIT=${PIPESTATUS[0]}"
+.....................................
+----------------------------------------------------------------------
+Ran 37 tests in 0.004s
+
+OK
+EXIT=

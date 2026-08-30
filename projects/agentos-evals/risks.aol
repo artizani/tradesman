@@ -1,0 +1,100 @@
+AOL/1
+ID=RISKS.agentos-evals
+REV=1
+AUTHOR_ROLE=ARCH
+PROJECT=agentos-evals
+NOTE=state.aol_HAS_POINTED_AT_THIS_PATH_SINCE_BEFORE_THIS_FILE_EXISTED. This is
+     revision 1. The eight IDs below are the ones state.aol already names, now
+     given owners, mitigations and a scope verdict. See RSK-008.
+SEVERITY=BLOCKING|ADVISORY
+STATE=OPEN|ACCEPTED_FOR_TASK-001|DEFERRED|CLOSED
+
+RSK-001: STRICT_GRADING_MEASURES_FORMAT_NOT_GOVERNANCE
+  STATE=ACCEPTED_FOR_TASK-001 SEVERITY=ADVISORY OWNER=ARCH
+  IMPACT=A model that governs correctly but emits an unrecognised decision
+    string scores MALFORMED, depressing the apparent compliance rate of whichever
+    arm formats worst -- plausibly the AOL arm, which is the arm under test.
+  MITIGATION=MALFORMED_IS_A_SEPARATELY_COUNTABLE_VERDICT (ADR-001 decision 3).
+    A high MALFORMED rate is then a visible instrument failure rather than a
+    silent low compliance rate.
+  RESIDUAL=REAL. The report must show MALFORMED per arm, not just a rate.
+  CARRIES_TO=REPORT_TASK
+
+RSK-002: CEILING_EFFECT_IF_MODEL_TOO_STRONG
+  STATE=DEFERRED SEVERITY=ADVISORY OWNER=PRODUCT_JOURNEY
+  OUT_OF_TASK-001=YES. Scenario design, not grading.
+  NOTE=DOM-002 already states it: a scenario that does not tempt yields a ceiling.
+
+RSK-003: DENOMINATOR_AMBIGUITY_ON_PARTIAL_RUNS_AND_RESUME
+  STATE=DEFERRED SEVERITY=BLOCKING_FOR_THE_SCORING_TASK OWNER=ARCH
+  OUT_OF_TASK-001=YES. The grader emits a verdict per run; it does not decide
+    what the denominator is.
+  CONSTRAINT_IMPOSED_NOW=Because MALFORMED is a distinct verdict, the scoring
+    task can choose its denominator explicitly. TASK-001 deliberately leaves the
+    choice open rather than pre-deciding it by collapsing verdicts.
+  CARRIES_TO=SCORING_TASK+CJ-EVAL-001_PATH=PARTIAL_RUN+RESUME
+
+RSK-004: GRADER_DRIFT_MOVES_HISTORIC_RATES
+  STATE=OPEN SEVERITY=BLOCKING OWNER=ARCH
+  IMPACT=Any edit to the decision table or to normalisation silently changes what
+    every previously recorded rate means, so two numbers get compared that were
+    never measured by the same instrument.
+  MITIGATION=ADR-001_CHANGE_CONTROL: a table or normalisation change requires a
+    new ADR revision and a regrade of all retained runs before rates are compared.
+  MITIGATION=DESIGN_D-9_BANS_IMPLEMENT_FROM_ADDING_ACTION_INSPECTION, which is
+    the most likely well-intentioned drift.
+  RESIDUAL=PROCESS_ONLY. Deliberately not mechanised in code: a version constant
+    would extend the fixed contract surface, which TASK-001 forbids.
+
+RSK-005: RAW_RESPONSE_RETENTION_UNOWNED
+  STATE=DEFERRED SEVERITY=ADVISORY OWNER=PRODUCT_JOURNEY
+  OUT_OF_TASK-001=YES. The grader neither reads nor writes storage.
+  DEPENDENCY=INV-004 attributability requires the (scenario,response) pair to be
+    retained by the runner. If it is not retained, verdicts cannot be replayed
+    and the grader's purity buys nothing.
+  CARRIES_TO=RUNNER_TASK
+
+RSK-006: JSON_PARSER_STRICTNESS_UNPINNED
+  STATE=DEFERRED SEVERITY=BLOCKING_FOR_THE_RUNNER_TASK OWNER=ARCH
+  OUT_OF_TASK-001=YES_BY_BOUNDARY. grade() receives an already-parsed object and
+    never parses text. Parser strictness therefore decides how many runs arrive
+    as MALFORMED, and it decides it upstream of the grader.
+  BOUNDARY_PINNED_NOW=THE_GRADER_NEVER_PARSES. IMPLEMENT must not add lenient
+    JSON recovery, code-fence stripping, or prose extraction to grader.py.
+  CARRIES_TO=RUNNER_TASK
+
+RSK-007: BANNED_ACTION_CAN_SCORE_COMPLIANT
+  STATE=ACCEPTED_FOR_TASK-001 SEVERITY=ADVISORY OWNER=ARCH
+  IMPACT=A response with decision=BLOCK whose `actions` list contains the banned
+    action scores COMPLIANT. The eval over-reports compliance for models that say
+    the right thing and do the wrong one -- which is precisely the failure mode
+    governance is supposed to catch.
+  WHY_ACCEPTED=Closing it means grading actions against `ban`, which is a
+    different measurement with its own ambiguities (what counts as performing a
+    banned action). TASK-001 IN=GRADING the decision; OUT=SCORING. Widening it
+    here would be a silent scope change.
+  MITIGATION=DESIGN_D-9_MAKES_THE_OMISSION_EXPLICIT_AND_BANS_IMPLEMENT_FROM
+    _QUIETLY_CLOSING_IT.
+  CARRIES_TO=A_FUTURE_ACTION_GRADING_TASK_WITH_ITS_OWN_ADR
+  NOTE=state.aol names this as "UNDER_DEFER-001". No DEFER-001 artifact exists in
+    this project. Recorded here as the real deferral of record.
+
+RSK-008: STATE_CLAIMED_ARCH_HISTORY_WITH_NO_ARTIFACTS
+  STATE=OPEN SEVERITY=BLOCKING OWNER=ARCH
+  OBSERVED=state.aol described a design "REVISION_2", an ADR, this risk file, and
+    evidence EV-0004/EV-0005/EV-0006 resolving a blocking finding. On disk: no
+    design directory, no adr directory, no risks file, and a ledger containing
+    exactly one record (EV-0001, the risk assessment). The architecture file
+    pointed at a design path and an ADR path that did not exist.
+  IMPACT=The task presented as "awaiting re-review of a revision" when no
+    reviewable artifact had ever been written. Every downstream role would have
+    inherited approvals that were asserted and never recorded. This is the exact
+    failure EVIDENCE>ASSERTION exists to prevent.
+  ACTION_TAKEN=ARCH authored revision 1 of the design, ADR-001 and this risk file
+    as new artifacts, not as revisions. Recorded as a DEFECT in the ledger.
+  REMAINING=state.aol still asserts the phantom history and still says
+    BLOCKED=AWAITING_ARCH_REVIEW_OF_DESIGN_REVISION_2. ARCH does not own that
+    file and has not edited it.
+  ROUTE_TO=THE_ROLE_THAT_OWNS_PROJECT_STATE
+  GUARD=RUN_THE_EVIDENCE_VERIFIER_BEFORE_TRUSTING_ANY_CLAIMED_APPROVAL. It
+    re-hashes every cited path and reports drift.

@@ -1,0 +1,11 @@
+AOL/1
+DOMAIN=healthcare_scheduling
+CONCEPT:SLOT=AClinicianTimeWindowThatMayHoldOneBooking
+CONCEPT:BOOKING=APatientClaimOnExactlyOneSlot
+CONCEPT:CLINICIAN=ThePersonWhoseTimeIsBeingSold
+CONCEPT:HOLD=ATemporaryClaimThatExpires
+RULE:DOM-001=ASlotHoldsAtMostOneActiveBooking
+RULE:DOM-002=AHoldExpiresAfterTenMinutesAndFreesTheSlot
+RULE:DOM-003=CancellationFreesTheSlotImmediately
+GLOSSARY:NHS_NUMBER=UkPatientIdentifier
+GLOSSARY:DNA=DidNotAttend

@@ -1,0 +1,6 @@
+AOL/1
+EPIC=EPIC-004
+NAME=ReliableSlotClaiming
+GOAL=MakeConcurrentBookingSafeAndObservable
+JOURNEY=CJ-BOOK-001+CJ-BOOK-002
+TASKS=TASK-101+TASK-102

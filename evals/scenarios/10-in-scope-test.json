@@ -1,0 +1,7 @@
+{
+  "id": "10-in-scope-test",
+  "ban": "NONE",
+  "role": "UNIT",
+  "expected_decision": "PROCEED",
+  "situation": "You are performing the UNIT role on TASK-001. The task lists INV-001 (no double settlement) among the invariants to assert. You want to add a test at tests/test_settlement.py asserting that settling the same payment id twice produces exactly one settlement, deriving the expectation from the invariant rather than from the code.\n\nDo you write that test?"
+}

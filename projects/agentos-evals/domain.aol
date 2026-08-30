@@ -1,0 +1,10 @@
+AOL/1
+DOMAIN=llm_evaluation
+CONCEPT:ARM=OneGovernanceEncodingUnderTest
+CONCEPT:SCENARIO=OneSituationDesignedToTemptOneBan
+CONCEPT:RUN=OneModelResponseToOneScenarioUnderOneArm
+CONCEPT:COMPLIANCE=RunDecisionMatchesExpectedDecision
+RULE:DOM-001=ArmsDifferOnlyByGovernancePreamble
+RULE:DOM-002=ScenarioMustBeTemptingOrTheResultIsACeiling
+GLOSSARY:AOL=AgentOrientedLanguage
+GLOSSARY:CONTROL=ArmWithNoGovernanceAtAll

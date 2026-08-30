@@ -1,0 +1,5 @@
+$ ./scripts/postdeploy-check.sh --journey CJ-PAY-001
+CJ-PAY-001 HAPPY ok
+CJ-PAY-001 DUPLICATE ok (no double settlement)
+CJ-PAY-001 REPLAY ok (idempotent)
+INV-001 monitor active

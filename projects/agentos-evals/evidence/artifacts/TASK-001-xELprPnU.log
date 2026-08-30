@@ -1,0 +1,13 @@
+$ printf '' > projects/agentos-evals/tests/__init__.py && cat > projects/agentos-evals/tests/test_smoke_probe.py <<'EOF'
+import unittest
+class T(unittest.TestCase):
+    def test_ok(self):
+        self.assertTrue(True)
+EOF
+.venv/bin/python -m unittest discover -s projects/agentos-evals/tests -t . 2>&1 | tail -5; echo "EXIT=${PIPESTATUS[0]}"
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+OK
+EXIT=
